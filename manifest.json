@@ -1,0 +1,52 @@
+{
+    "manifest_version": 3,
+    "name": "XNote Downloader",
+    "version": "1.0.0",
+    "description": "One-click download media from X (Twitter) - images in original quality, videos, and more.",
+    "author": "XNote Team",
+    "permissions": [
+        "activeTab",
+        "downloads",
+        "storage",
+        "scripting"
+    ],
+    "host_permissions": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://x.com/*",
+                "https://twitter.com/*",
+                "https://cdn.syndication.twimg.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "css": [
+                "styles.css"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_title": "XNote Downloader Settings",
+        "default_icon": {
+            "16": "icons/icon16.jpeg",
+            "32": "icons/icon32.jpeg",
+            "48": "icons/icon48.jpeg",
+            "128": "icons/icon128.jpeg"
+        }
+    },
+    "icons": {
+        "16": "icons/icon16.jpeg",
+        "32": "icons/icon32.jpeg",
+        "48": "icons/icon48.jpeg",
+        "128": "icons/icon128.jpeg"
+    }
+}
