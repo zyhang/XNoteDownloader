@@ -33,6 +33,13 @@ const DOWNLOAD_ICON_SVG = `
 </svg>
 `;
 
+// Tool icon SVG for floating button (XNote Logo)
+const TOOL_ICON_SVG = `
+<svg viewBox="0 0 54 18" class="xnote-tool-icon" aria-hidden="true" style="width: 42px;">
+  <text x="50%" y="55%" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="14" fill="currentColor" letter-spacing="-0.5" style="font-weight: 800;">XNote</text>
+</svg>
+`;
+
 // ============================================================================
 // State
 // ============================================================================
@@ -864,6 +871,117 @@ function startUrlWatcher() {
 }
 
 // ============================================================================
+// Floating Tool Button
+// ============================================================================
+
+/**
+ * Create the floating XNote tool button.
+ */
+function createFloatingButton() {
+    const button = document.createElement('div');
+    button.id = 'xnote-floating-btn';
+    button.className = 'xnote-floating-btn';
+    button.setAttribute('role', 'button');
+    button.setAttribute('tabindex', '0');
+    button.setAttribute('aria-label', 'XNote Tools');
+    button.innerHTML = TOOL_ICON_SVG;
+
+    // Add tooltip
+    const tooltip = document.createElement('span');
+    tooltip.className = 'xnote-floating-tooltip';
+    tooltip.textContent = 'XNote';
+    button.appendChild(tooltip);
+
+    return button;
+}
+
+/**
+ * Handle floating button click.
+ */
+function handleFloatingButtonClick() {
+    // Toggle menu or show options
+    const existingMenu = document.getElementById('xnote-floating-menu');
+    if (existingMenu) {
+        existingMenu.remove();
+        return;
+    }
+
+    const menu = document.createElement('div');
+    menu.id = 'xnote-floating-menu';
+    menu.className = 'xnote-floating-menu';
+
+    // Menu items
+    const items = [
+        { label: 'About XNote', action: () => console.log('[XNote] XNote Downloader v1.0') }
+    ];
+
+    // Add "Download Reviews" option if on detail page
+    if (isDetailPage()) {
+        items.unshift({
+            label: 'Download Reviews',
+            action: () => {
+                const mainTweet = document.querySelector(TWEET_SELECTOR);
+                if (mainTweet && isMainTweet(mainTweet)) {
+                    const btn = mainTweet.querySelector('.xnote-comments-btn');
+                    if (btn) {
+                        btn.click();
+                    } else {
+                        handleCommentsDownload(mainTweet, document.getElementById('xnote-floating-btn'));
+                    }
+                }
+                menu.remove();
+            }
+        });
+    }
+
+    items.forEach(item => {
+        const menuItem = document.createElement('div');
+        menuItem.className = 'xnote-floating-menu-item';
+        menuItem.textContent = item.label;
+        menuItem.addEventListener('click', (e) => {
+            e.stopPropagation();
+            item.action();
+            menu.remove();
+        });
+        menu.appendChild(menuItem);
+    });
+
+    document.body.appendChild(menu);
+
+    // Close menu on click outside
+    setTimeout(() => {
+        document.addEventListener('click', () => menu.remove(), { once: true });
+    }, 0);
+}
+
+/**
+ * Inject floating button into the page.
+ */
+function injectFloatingButton() {
+    if (document.getElementById('xnote-floating-btn')) {
+        return;
+    }
+
+    const button = createFloatingButton();
+
+    button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleFloatingButtonClick();
+    });
+
+    button.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+            e.preventDefault();
+            handleFloatingButtonClick();
+        }
+    });
+
+    document.body.appendChild(button);
+    console.log('[XNote] Floating button injected');
+}
+
+// ============================================================================
 // Initialization
 // ============================================================================
 
@@ -872,6 +990,7 @@ function init() {
     scanForTweets();
     initObserver();
     startUrlWatcher();
+    injectFloatingButton();
     console.log('[XNote] Ready!');
 }
 

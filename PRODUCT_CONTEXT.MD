@@ -51,6 +51,33 @@ XNote Downloader 是一款轻量级、零干扰的 Chrome 浏览器扩展。
 3.  **防抖 (Debounce):** `MutationObserver` 触发频率极高，必须对注入逻辑做 Debounce 处理，防止页面卡顿。
 
 ## 6. Current Roadmap (当前迭代)
-* **Phase 1 (MVP):** 实现图片下载功能（自动替换为 `orig` 画质），按钮成功注入 Action Bar。
-* **Phase 2:** 攻克视频下载（解析 MP4 地址）。
-* **Phase 3:** 增加 ZIP 打包下载功能。
+* **Phase 1 (MVP):** ✅ 实现图片下载功能（自动替换为 `orig` 画质），按钮成功注入 Action Bar。
+* **Phase 2:** ✅ 攻克视频下载（通过 Syndication API 解析 MP4 地址）。
+* **Phase 3:** 增加 ZIP 打包下载功能。（待实现）
+* **Phase 4:** ✅ 评论抓取导出功能（Download Reviews to CSV）。
+
+## 7. Implemented Features (已实现功能)
+
+### A. Media Download (媒体下载)
+* 图片下载：自动获取原始画质 (`&name=orig`)
+* 视频下载：通过 Twitter Syndication API 解析 MP4 地址
+* 文件命名：`xnote_{username}_{tweetId}_{index}.{ext}`
+* 下载按钮注入到每条推文的 Action Bar
+
+### B. Download Reviews (评论抓取) - NEW
+* **入口限制：** 仅在推文详情页 (`/status/xxx`) 显示 "download reviews" 按钮
+* **按钮位置：** 主推文的 Action Bar（点赞、转发那一排）
+* **抓取逻辑：**
+  * 自动向下滚动页面，模拟用户浏览
+  * 随机等待 1.5-2.5 秒（防止被检测）
+  * 抓取上限：100 条评论
+  * 终止条件：达到上限 OR 连续 3 次滚动无新数据
+* **导出格式：** CSV 文件
+  * 列：`Username, Date, Text, Likes, Replies_Count, Views`
+  * 文件名：`comments_{tweetId}.csv`
+* **用户反馈：** 右下角浮动进度条显示抓取进度
+
+### C. SPA Navigation Support (单页应用支持)
+* URL 轮询监听（每 500ms 检测）
+* 支持前进/后退导航
+* 自动检测页面类型（首页 vs 详情页）

@@ -192,3 +192,116 @@
     transform: translateY(0);
   }
 }
+
+/* ============================================================================
+   Floating Tool Button (positioned above Grok/Chat buttons)
+   ============================================================================ */
+
+.xnote-floating-btn {
+  position: fixed;
+  bottom: 206px;
+  right: 20px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  /* Circular shape */
+  background: rgb(255, 255, 255);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+
+  /* Premium Shadow: Soft ambient shadow + defined key shadow */
+  box-shadow:
+    rgba(101, 119, 134, 0.15) 0px 0px 15px,
+    rgba(101, 119, 134, 0.20) 0px 1px 3px 1px;
+
+  /* Subtle border */
+  border: 1px solid rgba(0, 0, 0, 0.04);
+
+  z-index: 9999;
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  /* Bouncy transition */
+}
+
+.xnote-floating-btn:hover {
+  background: rgb(247, 249, 249);
+  transform: scale(1.08) translateY(-2px);
+  /* Slight lift and grow */
+  box-shadow:
+    rgba(101, 119, 134, 0.20) 0px 5px 20px,
+    rgba(101, 119, 134, 0.25) 0px 2px 8px;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.xnote-tool-icon {
+  width: auto;
+  height: auto;
+  max-width: 42px;
+  max-height: 28px;
+  color: rgb(15, 20, 25);
+}
+
+/* Tooltip */
+.xnote-floating-tooltip {
+  position: absolute;
+  right: 64px;
+  background: rgb(21, 32, 43);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.xnote-floating-btn:hover .xnote-floating-tooltip {
+  opacity: 1;
+}
+
+/* Floating Menu */
+.xnote-floating-menu {
+  position: fixed;
+  bottom: 200px;
+  right: 20px;
+  background: rgb(21, 32, 43);
+  border: 1px solid rgb(56, 68, 77);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  min-width: 160px;
+  overflow: hidden;
+  z-index: 10000;
+  animation: xnote-fade-in 0.15s ease;
+}
+
+.xnote-floating-menu-item {
+  padding: 12px 16px;
+  cursor: pointer;
+  color: rgb(231, 233, 234);
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  transition: background-color 0.2s ease;
+}
+
+.xnote-floating-menu-item:hover {
+  background-color: rgba(29, 155, 240, 0.1);
+}
+
+/* Light mode */
+@media (prefers-color-scheme: light) {
+  .xnote-floating-tooltip {
+    background: rgb(15, 20, 25);
+  }
+
+  .xnote-floating-menu {
+    background: rgb(255, 255, 255);
+    border: 1px solid rgb(207, 217, 222);
+  }
+
+  .xnote-floating-menu-item {
+    color: rgb(15, 20, 25);
+  }
+}
