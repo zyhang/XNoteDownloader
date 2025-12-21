@@ -39,6 +39,7 @@ XNote Downloader 是一款轻量级、零干扰的 Chrome 浏览器扩展。
 * **Format:** `xnote_{username}_{tweetId}_{index}.{ext}`
 * *Example:* `xnote_elonmusk_123456789_1.jpg`
 
+
 ## 4. UI/UX Specifications (交互规范)
 * **Icon:** 使用简单的 Feather Icon 风格（如下载箭头），颜色需适配 X 的当前主题（Light/Dim/Lights Out 模式自动适应 SVG `fill` 颜色）。
 * **Feedback:** 点击后必须有视觉反馈（Loading 状态 -> Success 对钩 / Error 红色感叹号）。
