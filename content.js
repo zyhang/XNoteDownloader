@@ -5,6 +5,79 @@
 
 console.log('XNote Downloader Loaded');
 
+// Inject React Props Extraction Script (Main World)
+function injectReactPropsScript() {
+    const script = document.createElement('script');
+    script.textContent = `
+    (function() {
+        function getReactProps(el) {
+            if (!el) return null;
+            const keys = Object.keys(el);
+            const propKey = keys.find(k => k.startsWith('__reactProps'));
+            return propKey ? el[propKey] : null;
+        }
+
+        function findVideoInfoInReact(element) {
+            try {
+                // Heuristic: Traverse React fiber to find 'tweet' prop
+                const props = getReactProps(element);
+                if (!props) return null;
+                
+                // Helper to recursive search
+                function search(obj, depth = 0) {
+                    if (depth > 5 || !obj) return null;
+                    if (obj.tweet && obj.tweet.legacy) return obj.tweet;
+                    
+                    if (obj.children) {
+                        if (Array.isArray(obj.children)) {
+                            for (const child of obj.children) {
+                                const res = search(child.props, depth + 1);
+                                if (res) return res;
+                            }
+                        } else {
+                            const res = search(obj.children.props, depth + 1);
+                            if (res) return res;
+                        }
+                    }
+                    if (obj.props) return search(obj.props, depth + 1);
+                    return null;
+                }
+                
+                const tweetData = search(props);
+                if (tweetData && tweetData.legacy && tweetData.legacy.extended_entities) {
+                    const media = tweetData.legacy.extended_entities.media.find(m => m.type === 'video' || m.type === 'animated_gif');
+                    if (media && media.video_info && media.video_info.variants) {
+                        // Find best variant
+                        const variants = media.video_info.variants.filter(v => v.content_type === 'video/mp4');
+                        if (variants.length > 0) {
+                            variants.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+                            return variants[0].url;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Ignore errors
+            }
+            return null;
+        }
+
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'XNOTE_GET_VIDEO_URL') {
+                const article = document.querySelector('article[data-testid="tweet"]');
+                // Ideally we find the specific article, but detail page main tweet is usually the first or biggest
+                // Simplification for MVP:
+                const url = findVideoInfoInReact(article);
+                window.postMessage({ type: 'XNOTE_VIDEO_URL_RESULT', url: url, reqId: event.data.reqId }, '*');
+            }
+        });
+    })();
+    `;
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+}
+
+injectReactPropsScript();
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -152,6 +225,7 @@ function parseCommentElement(element) {
         text: '',
         likes: 0,
         replies_count: 0,
+        retweets_count: 0, // Added field
         views: 0
     };
 
@@ -211,6 +285,16 @@ function parseCommentElement(element) {
         }
     }
 
+    // Extract retweet count (Retweet/Repost)
+    const retweetButton = element.querySelector('[data-testid="retweet"], [data-testid="unretweet"]');
+    if (retweetButton) {
+        const avgLabel = retweetButton.getAttribute('aria-label') || '';
+        const rtMatch = avgLabel.match(/(\d+)/);
+        if (rtMatch) {
+            data.retweets_count = parseInt(rtMatch[1], 10);
+        }
+    }
+
     // Extract view count (analytics)
     const analyticsLink = element.querySelector('a[href*="/analytics"]');
     if (analyticsLink) {
@@ -247,7 +331,7 @@ function escapeCSV(value) {
  * Convert comments array to CSV string.
  */
 function convertToCSV(comments) {
-    const header = 'Username,Date,Text,Likes,Replies_Count,Views';
+    const header = 'Username,Date,Text,Likes,Replies_Count,Retweets_Count,Views';
     const rows = comments.map(c =>
         [
             escapeCSV(c.username),
@@ -255,6 +339,7 @@ function convertToCSV(comments) {
             escapeCSV(c.text),
             escapeCSV(c.likes),
             escapeCSV(c.replies_count),
+            escapeCSV(c.retweets_count),
             escapeCSV(c.views)
         ].join(',')
     );
@@ -699,6 +784,11 @@ function injectMediaDownloadButton(tweetElement) {
         return;
     }
 
+    // Skip injection if this is the main tweet on a detail page (Clean UI request)
+    if (isDetailPage() && isMainTweet(tweetElement)) {
+        return;
+    }
+
     if (actionBar.querySelector('.xnote-media-btn')) {
         return;
     }
@@ -785,8 +875,265 @@ function processMainTweet(tweet) {
     }
 
     processedMainTweets.add(tweet);
-    injectCommentsDownloadButton(tweet);
-    console.log('[XNote] Injected comments button into main tweet');
+    // injectCommentsDownloadButton(tweet); // Removed as per request
+    injectAdvancedArea(tweet);
+    console.log('[XNote] Injected advanced/comments buttons into main tweet');
+}
+
+/**
+ * Inject Advanced Action Area (Zip & Review Data).
+ */
+function injectAdvancedArea(tweetElement) {
+    if (tweetElement.querySelector('.xnote-advanced-area')) return;
+
+    // Find insertion point: Above Stats Row or Action Bar
+    const actionBar = tweetElement.querySelector(ACTION_BAR_SELECTOR);
+    if (!actionBar) return;
+
+    const container = actionBar.parentElement;
+    let insertTarget = actionBar;
+
+    // Try to find stats row (links to retweets/likes)
+    const statsLinks = tweetElement.querySelectorAll('a[href$="/retweets"], a[href$="/likes"]');
+    if (statsLinks.length > 0) {
+        // Find the specific row container
+        let current = statsLinks[0];
+        while (current && current.parentElement !== container) {
+            current = current.parentElement;
+        }
+        if (current) insertTarget = current;
+    }
+
+    const area = document.createElement('div');
+    area.className = 'xnote-advanced-area';
+
+    // Zip Download Button
+    const zipBtn = document.createElement('div');
+    zipBtn.className = 'xnote-btn-primary';
+    zipBtn.textContent = '下载资源包';
+    zipBtn.onclick = (e) => {
+        e.stopPropagation();
+        handleBoxDownload(tweetElement, zipBtn);
+    };
+
+    // Review Data Button
+    const reviewBtn = document.createElement('div');
+    reviewBtn.className = 'xnote-btn-secondary';
+    reviewBtn.textContent = '评论数据';
+    reviewBtn.onclick = (e) => {
+        e.stopPropagation();
+        handleReviewData(tweetElement, reviewBtn);
+    };
+
+    area.appendChild(zipBtn);
+    area.appendChild(reviewBtn);
+
+    container.insertBefore(area, insertTarget);
+}
+
+/**
+ * Handle "Download Zip" Action.
+ */
+async function handleBoxDownload(tweetElement, button) {
+    if (button.textContent.includes('...')) return;
+
+    const originalText = button.textContent;
+    button.textContent = '打包中...';
+
+    try {
+        const username = extractUsername(tweetElement);
+        const tweetId = extractTweetId(tweetElement);
+        const zip = new JSZip();
+
+        // 1. Text
+        const textElement = tweetElement.querySelector('[data-testid="tweetText"]');
+        const text = textElement ? textElement.innerText : '';
+        zip.file("text.txt", text);
+
+        // 2. Images
+        const images = findMediaImages(tweetElement);
+        for (let i = 0; i < images.length; i++) {
+            const url = getOriginalQualityUrl(images[i].src);
+            try {
+                // Use background script to fetch blob to avoid CORS issues if any,
+                // but usually content script can fetch if host permissions are set.
+                // However, X images are CDN. Let's try fetch directly.
+                const imgBlob = await fetch(url).then(r => r.blob());
+                const ext = getExtension(url);
+                zip.file(`img_${i + 1}.${ext}`, imgBlob);
+            } catch (e) {
+                console.error('Image fetch failed', e);
+            }
+        }
+
+        // 3. Video (if any)
+        if (hasVideo(tweetElement)) {
+            // Request video URL from injected script
+            const videoUrl = await new Promise((resolve) => {
+                const reqId = Math.random().toString();
+                const listener = (event) => {
+                    if (event.data.type === 'XNOTE_VIDEO_URL_RESULT' && event.data.reqId === reqId) {
+                        window.removeEventListener('message', listener);
+                        resolve(event.data.url);
+                    }
+                };
+                window.addEventListener('message', listener);
+                window.postMessage({ type: 'XNOTE_GET_VIDEO_URL', reqId }, '*');
+
+                // Timeout
+                setTimeout(() => {
+                    window.removeEventListener('message', listener);
+                    resolve(null);
+                }, 3000);
+            });
+
+            if (videoUrl) {
+                try {
+                    const vidBlob = await fetch(videoUrl).then(r => r.blob());
+                    zip.file("video.mp4", vidBlob);
+                } catch (e) {
+                    console.error('Video fetch failed', e);
+                }
+            } else {
+                console.warn('Video detected but URL not found via React props');
+                // Don't alert here to avoid annoyance, just skip or log
+            }
+        }
+
+        // Generate Zip
+        const content = await zip.generateAsync({ type: "blob" });
+        const zipUrl = URL.createObjectURL(content);
+
+        // Trigger Download
+        const link = document.createElement("a");
+        link.href = zipUrl;
+        link.download = `Tweet_${username}_${tweetId}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(zipUrl);
+
+        button.textContent = '完成';
+        setTimeout(() => button.textContent = originalText, 2000);
+
+    } catch (e) {
+        console.error('Zip download failed', e);
+        alert('打包下载失败: ' + e.message);
+        button.textContent = '失败';
+        setTimeout(() => button.textContent = originalText, 2000);
+    }
+}
+
+/**
+ * Handle "Review Data" Modal.
+ */
+function handleReviewData(tweetElement, button) {
+    // Create Modal HTML
+    const existingModal = document.getElementById('xnote-review-modal');
+    if (existingModal) existingModal.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'xnote-review-modal';
+    overlay.className = 'xnote-modal-overlay';
+
+    overlay.innerHTML = `
+        <div class="xnote-modal">
+            <div class="xnote-modal-header">
+                <div class="xnote-modal-title">评论数据分析</div>
+                <div class="xnote-modal-actions">
+                    <button class="xnote-btn-primary" id="xnote-export-csv" style="height: 28px; font-size: 13px;">导出 CSV</button>
+                    <button class="xnote-close-btn" id="xnote-close-modal">✕</button>
+                </div>
+            </div>
+            <div class="xnote-modal-body">
+                <table class="xnote-data-table">
+                    <thead>
+                        <tr>
+                            <th>评论内容</th>
+                            <th>评论人</th>
+                            <th>发布时间</th>
+                            <th>点赞</th>
+                            <th>评论</th>
+                            <th>转发</th>
+                            <th>浏览</th>
+                        </tr>
+                    </thead>
+                    <tbody id="xnote-table-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const closeBtn = overlay.querySelector('#xnote-close-modal');
+    const exportBtn = overlay.querySelector('#xnote-export-csv');
+    const tableBody = overlay.querySelector('#xnote-table-body');
+
+    const close = () => {
+        overlay.remove();
+        isScrapingComments = false; // Stop scraping
+    };
+
+    closeBtn.onclick = close;
+    overlay.onclick = (e) => {
+        if (e.target === overlay) close();
+    };
+
+    const scrapedData = [];
+    const scrapedIds = new Set();
+
+    exportBtn.onclick = () => {
+        const csv = convertToCSV(scrapedData);
+        downloadCSV(csv, getCurrentTweetIdFromUrl() || 'data');
+    };
+
+    // Start scraping in background
+    startModalScraping(scrapedData, scrapedIds, tableBody);
+}
+
+async function startModalScraping(dataArray, idSet, tableBody) {
+    if (isScrapingComments) return;
+    isScrapingComments = true;
+
+    let emptyScrollCount = 0;
+
+    while (isScrapingComments && emptyScrollCount < MAX_EMPTY_SCROLLS) {
+        const tweetElements = document.querySelectorAll(TWEET_SELECTOR);
+        let newFound = 0;
+
+        for (const element of tweetElements) {
+            const d = parseCommentElement(element);
+            if (!d.id || idSet.has(d.id)) continue;
+            // Ideally check if it's main tweet
+
+            idSet.add(d.id);
+            dataArray.push(d);
+            newFound++;
+
+            // Append to table
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${d.text.substring(0, 100)}</td>
+                <td>@${d.username}</td>
+                <td>${d.date ? new Date(d.date).toLocaleString() : '-'}</td>
+                <td>${d.likes}</td>
+                <td>${d.replies_count}</td>
+                <td>${d.retweets_count}</td> <!-- Show retweets count -->
+                <td>${d.views || '-'}</td>
+             `;
+            tableBody.appendChild(tr);
+        }
+
+        if (newFound === 0) emptyScrollCount++;
+        else emptyScrollCount = 0;
+
+        window.scrollBy(0, window.innerHeight);
+        await randomWait(1500, 2500);
+    }
+
+    isScrapingComments = false;
 }
 
 /**

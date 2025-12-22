@@ -25,6 +25,7 @@
                 "https://cdn.syndication.twimg.com/*"
             ],
             "js": [
+                "jszip.js",
                 "content.js"
             ],
             "css": [

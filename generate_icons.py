@@ -6,7 +6,7 @@ def generate_icon(size, filename):
     # Colors
     bg_color = (255, 255, 255)
     border_color = (207, 217, 222) # Light gray-blue from Grok button
-    text_color = (15, 20, 25)      # Black/Dark Gray
+    text_color = (29, 155, 240)    # Twitter Blue
     
     # Create image with transparent background
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
@@ -31,7 +31,7 @@ def generate_icon(size, filename):
     large_draw.ellipse((0, 0, large_size-1, large_size-1), outline=border_color, width=stroke_width)
     
     # Text
-    text = "X" if size <= 32 else "XNote"
+    text = "XN" if size <= 32 else "XNote"
     
     # Load Font
     # Try to find a bold san-serif font on macOS
@@ -42,7 +42,7 @@ def generate_icon(size, filename):
     try:
         # Calculate font size roughly
         if size <= 32:
-            font_size = int(size * 0.6) * scale
+            font_size = int(size * 0.5) * scale # smaller to fit 2 letters
         else:
             font_size = int(size * 0.25) * scale # smaller for full text
             
