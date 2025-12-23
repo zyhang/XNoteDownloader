@@ -9,7 +9,8 @@
 
 const MESSAGE_TYPES = {
     DOWNLOAD_MEDIA: 'DOWNLOAD_MEDIA',
-    RESOLVE_VIDEO_AND_DOWNLOAD: 'RESOLVE_VIDEO_AND_DOWNLOAD'
+    RESOLVE_VIDEO_AND_DOWNLOAD: 'RESOLVE_VIDEO_AND_DOWNLOAD',
+    RESOLVE_VIDEO_URL_ONLY: 'RESOLVE_VIDEO_URL_ONLY'
 };
 
 const SYNDICATION_API = 'https://cdn.syndication.twimg.com/tweet-result';
@@ -174,9 +175,12 @@ function findVariants(data) {
  * @returns {Promise<string|null>} MP4 URL or null if not found
  */
 async function resolveVideoUrl(tweetId) {
-    const apiUrl = `${SYNDICATION_API}?id=${tweetId}&token=x`;
+    console.log('='.repeat(60));
+    console.log('[XNote BG] >>> STEP 1: Starting Syndication API request');
+    console.log(`[XNote BG] Tweet ID: ${tweetId}`);
 
-    console.log(`[XNote BG] Fetching video info for tweet ${tweetId}...`);
+    const apiUrl = `${SYNDICATION_API}?id=${tweetId}&token=x`;
+    console.log(`[XNote BG] API URL: ${apiUrl}`);
 
     try {
         const response = await fetch(apiUrl, {
@@ -196,21 +200,29 @@ async function resolveVideoUrl(tweetId) {
 
         const data = await response.json();
 
-        // CRUCIAL: Log raw data for debugging
-        console.log('[XNote BG] API Raw Data:', data);
+        console.log('[XNote BG] >>> STEP 2: Parsing API response');
+        console.log('[XNote BG] Response __typename:', data.__typename || 'N/A');
+        console.log('[XNote BG] Has video?:', !!data.video);
+        console.log('[XNote BG] Has mediaDetails?:', !!data.mediaDetails);
+        console.log('[XNote BG] API Raw Data:', JSON.stringify(data).substring(0, 500) + '...');
 
-        // Find variants using smart extraction
+        console.log('[XNote BG] >>> STEP 3: Searching for video variants');
         const variants = findVariants(data);
 
         if (!variants || variants.length === 0) {
-            console.error('[XNote BG] Extraction Failed. No variants found.');
+            console.error('[XNote BG] ❌ FAILED: No video variants found in API response');
+            console.error('[XNote BG] This usually means:');
+            console.error('[XNote BG]   - Tweet is age-restricted/NSFW (TweetTombstone)');
+            console.error('[XNote BG]   - Tweet is protected/private');
+            console.error('[XNote BG]   - Tweet has no video');
             console.error('[XNote BG] Full JSON:', JSON.stringify(data));
             return null;
         }
 
-        console.log(`[XNote BG] Found ${variants.length} total variants`);
+        console.log('[XNote BG] >>> STEP 4: Filtering MP4 variants');
+        console.log(`[XNote BG] Total variants found: ${variants.length}`);
+        variants.forEach((v, i) => console.log(`[XNote BG]   Variant ${i + 1}: type=${v.type}, bitrate=${v.bitrate || 'N/A'}`));
 
-        // 1. Filter by type (NOT content_type) - don't check bitrate
         let mp4s = variants.filter(v => v.type === 'video/mp4');
 
         if (mp4s.length === 0) {
@@ -240,10 +252,11 @@ async function resolveVideoUrl(tweetId) {
             return getRes(b.src) - getRes(a.src);
         });
 
-        // 3. Pick first (highest quality after sorting)
+        console.log('[XNote BG] >>> STEP 5: Selecting best quality video');
         const targetVideo = mp4s[0];
 
-        console.log(`[XNote BG] Selected video: ${targetVideo.src}`);
+        console.log(`[XNote BG] ✓ Selected video URL: ${targetVideo.src}`);
+        console.log('='.repeat(60));
         return targetVideo.src;
 
     } catch (error) {
@@ -300,6 +313,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             .then((result) => sendResponse(result))
             .catch((error) => {
                 console.error('[XNote BG] Video resolve error:', error);
+                sendResponse({ success: false, error: error.message });
+            });
+
+        return true;
+    }
+
+    // Handle RESOLVE_VIDEO_URL_ONLY (returns URL without downloading)
+    if (type === MESSAGE_TYPES.RESOLVE_VIDEO_URL_ONLY) {
+        const { tweetId } = message;
+        console.log(`[XNote BG] Received URL-only resolve request for tweet ${tweetId}`);
+
+        resolveVideoUrl(tweetId)
+            .then((url) => {
+                console.log(`[XNote BG] URL-only result: ${url ? 'SUCCESS' : 'FAILED'}`);
+                sendResponse({ success: !!url, url: url });
+            })
+            .catch((error) => {
+                console.error('[XNote BG] URL-only resolve error:', error);
                 sendResponse({ success: false, error: error.message });
             });
 
