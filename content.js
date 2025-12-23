@@ -10,13 +10,10 @@ function injectReactPropsScript() {
     const script = document.createElement('script');
     script.textContent = `
     (function() {
-        console.log('[XNote Main] React props extraction script loaded');
-        
         function getReactProps(el) {
             if (!el) return null;
             const keys = Object.keys(el);
             const propKey = keys.find(k => k.startsWith('__reactProps'));
-            console.log('[XNote Main] React props key:', propKey || 'NOT FOUND');
             return propKey ? el[propKey] : null;
         }
         
@@ -24,64 +21,50 @@ function injectReactPropsScript() {
             if (!el) return null;
             const keys = Object.keys(el);
             const fiberKey = keys.find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-            console.log('[XNote Main] React fiber key:', fiberKey || 'NOT FOUND');
             return fiberKey ? el[fiberKey] : null;
         }
 
         function findVideoInfoInReact(element) {
-            console.log('[XNote Main] >>> Searching for video info in React props...');
             try {
                 const props = getReactProps(element);
                 const fiber = getReactFiber(element);
                 
-                // Deep search function
-                function searchForVideo(obj, depth = 0, path = 'root') {
+                function searchForVideo(obj, depth = 0) {
                     if (depth > 20 || !obj || typeof obj !== 'object') return null;
                     
-                    // Check for video_info directly
                     if (obj.video_info && obj.video_info.variants) {
-                        console.log('[XNote Main] Found video_info at path:', path);
                         const variants = obj.video_info.variants.filter(v => v.content_type === 'video/mp4');
-                        console.log('[XNote Main] MP4 variants:', variants.length);
                         if (variants.length > 0) {
                             variants.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-                            console.log('[XNote Main] Best variant URL:', variants[0].url);
                             return variants[0].url;
                         }
                     }
                     
-                    // Check extended_entities
                     if (obj.extended_entities && obj.extended_entities.media) {
-                        console.log('[XNote Main] Found extended_entities.media at path:', path);
                         for (const m of obj.extended_entities.media) {
                             if (m.video_info && m.video_info.variants) {
-                                console.log('[XNote Main] Media type:', m.type);
-                                const res = searchForVideo(m, depth + 1, path + '.extended_entities.media[]');
+                                const res = searchForVideo(m, depth + 1);
                                 if (res) return res;
                             }
                         }
                     }
                     
-                    // Check legacy.extended_entities
                     if (obj.legacy && obj.legacy.extended_entities) {
-                        console.log('[XNote Main] Found legacy.extended_entities at path:', path);
-                        const res = searchForVideo(obj.legacy.extended_entities, depth + 1, path + '.legacy.extended_entities');
+                        const res = searchForVideo(obj.legacy.extended_entities, depth + 1);
                         if (res) return res;
                     }
                     
-                    // Traverse common keys
                     const keysToCheck = ['tweet', 'result', 'media', 'props', 'children', 'memoizedProps', 'stateNode'];
                     for (const key of keysToCheck) {
                         if (obj[key] && typeof obj[key] === 'object') {
-                            const res = searchForVideo(obj[key], depth + 1, path + '.' + key);
+                            const res = searchForVideo(obj[key], depth + 1);
                             if (res) return res;
                         }
                     }
                     
-                    // Check arrays
                     if (Array.isArray(obj)) {
                         for (let i = 0; i < Math.min(obj.length, 10); i++) {
-                            const res = searchForVideo(obj[i], depth + 1, path + '[' + i + ']');
+                            const res = searchForVideo(obj[i], depth + 1);
                             if (res) return res;
                         }
                     }
@@ -89,41 +72,26 @@ function injectReactPropsScript() {
                     return null;
                 }
                 
-                // Search in props
                 if (props) {
-                    console.log('[XNote Main] Searching React props...');
-                    const url = searchForVideo(props, 0, 'props');
+                    const url = searchForVideo(props, 0);
                     if (url) return url;
                 }
                 
-                // Search in fiber
                 if (fiber) {
-                    console.log('[XNote Main] Searching React fiber...');
-                    const url = searchForVideo(fiber, 0, 'fiber');
+                    const url = searchForVideo(fiber, 0);
                     if (url) return url;
                 }
-                
-                console.log('[XNote Main] No video URL found in React data');
-            } catch (e) {
-                console.error('[XNote Main] Error during React props search:', e);
-            }
+            } catch (e) {}
             return null;
         }
 
         window.addEventListener('message', (event) => {
             if (event.data.type === 'XNOTE_GET_VIDEO_URL') {
-                console.log('[XNote Main] >>> Received video URL request');
                 const article = document.querySelector('article[data-testid="tweet"]');
-                console.log('[XNote Main] Article element found:', !!article);
-                
                 const url = findVideoInfoInReact(article);
-                console.log('[XNote Main] Final result:', url || 'NOT FOUND');
-                
                 window.postMessage({ type: 'XNOTE_VIDEO_URL_RESULT', url: url, reqId: event.data.reqId }, '*');
             }
         });
-        
-        console.log('[XNote Main] Event listener registered');
     })();
     `;
     (document.head || document.documentElement).appendChild(script);
@@ -194,7 +162,7 @@ function showProgressOverlay() {
         document.body.appendChild(overlay);
     }
     overlay.style.display = 'flex';
-    overlay.textContent = 'Scraping comments: 0/100...';
+    overlay.textContent = t('status_scraping', { current: 0, total: 100 });
     return overlay;
 }
 
@@ -204,7 +172,7 @@ function showProgressOverlay() {
 function updateProgress(current, total) {
     const overlay = document.getElementById('xnote-progress-overlay');
     if (overlay) {
-        overlay.textContent = `Scraping comments: ${current}/${total}...`;
+        overlay.textContent = t('status_scraping', { current, total });
     }
 }
 
@@ -658,13 +626,11 @@ function getExtension(url) {
  * @returns {Promise<string|null>} Video URL or null
  */
 function requestVideoUrlFromReact() {
-    console.log('[XNote] >>> Fallback: Requesting video URL from React props...');
     return new Promise((resolve) => {
         const reqId = Math.random().toString();
         const listener = (event) => {
             if (event.data.type === 'XNOTE_VIDEO_URL_RESULT' && event.data.reqId === reqId) {
                 window.removeEventListener('message', listener);
-                console.log('[XNote] React props extraction result:', event.data.url || 'NOT FOUND');
                 resolve(event.data.url);
             }
         };
@@ -672,7 +638,6 @@ function requestVideoUrlFromReact() {
         window.postMessage({ type: 'XNOTE_GET_VIDEO_URL', reqId }, '*');
         setTimeout(() => {
             window.removeEventListener('message', listener);
-            console.log('[XNote] React props extraction timed out');
             resolve(null);
         }, 5000);
     });
@@ -686,102 +651,48 @@ function requestVideoUrlFromReact() {
  *   3. Download the resolved URL
  */
 async function downloadTweetVideo(tweetElement, buttonElement) {
-    console.log('='.repeat(60));
-    console.log('[XNote] ========== VIDEO DOWNLOAD STARTED ==========');
-
-    // STEP 1: Extract tweet info
-    console.log('[XNote] >>> STEP 1: Extracting tweet information');
     const username = extractUsername(tweetElement);
     const tweetId = extractTweetId(tweetElement);
-    console.log(`[XNote] Username: @${username}`);
-    console.log(`[XNote] Tweet ID: ${tweetId}`);
 
     if (tweetId === 'unknown') {
-        console.error('[XNote] ❌ FAILED: Tweet ID not found in element');
+        console.error('[XNote] Cannot download: Tweet ID not found');
         showButtonFeedback(buttonElement, 'error');
         return;
     }
 
     const filename = `xnote_${username}_${tweetId}.mp4`;
-    console.log(`[XNote] Target filename: ${filename}`);
-
-    // Show processing feedback
     showButtonFeedback(buttonElement, 'loading');
 
     try {
-        // STEP 2: Check for video element
-        console.log('[XNote] >>> STEP 2: Checking for video element in DOM');
-        const hasVideoElement = hasVideo(tweetElement);
-        console.log(`[XNote] Video element found: ${hasVideoElement}`);
-
-        if (!hasVideoElement) {
-            console.error('[XNote] ❌ FAILED: No video element in tweet');
-            showButtonFeedback(buttonElement, 'error');
-            return;
-        }
-
-        // STEP 3: Try Syndication API
-        console.log('[XNote] >>> STEP 3: Requesting video URL from Syndication API...');
-        console.log('[XNote] Sending RESOLVE_VIDEO_URL_ONLY message to background script');
-
+        // Try Syndication API first
         const response = await chrome.runtime.sendMessage({
             type: MESSAGE_TYPES.RESOLVE_VIDEO_URL_ONLY,
             tweetId: tweetId
         });
 
-        console.log('[XNote] Background script response:', response);
-
         let videoUrl = null;
 
         if (response && response.success && response.url) {
-            console.log('[XNote] ✓ Syndication API succeeded!');
-            console.log(`[XNote] Video URL: ${response.url}`);
             videoUrl = response.url;
         } else {
-            console.log('[XNote] ⚠ Syndication API failed (likely age-restricted content)');
-
-            // STEP 4: Fallback to React props extraction
-            console.log('[XNote] >>> STEP 4: Trying fallback - React props extraction');
+            // Fallback to React props extraction
             videoUrl = await requestVideoUrlFromReact();
-
-            if (videoUrl) {
-                console.log('[XNote] ✓ React props extraction succeeded!');
-                console.log(`[XNote] Video URL: ${videoUrl}`);
-            } else {
-                console.log('[XNote] ❌ React props extraction also failed');
-            }
         }
 
-        // STEP 5: Download the video
         if (videoUrl) {
-            console.log('[XNote] >>> STEP 5: Initiating download');
-            console.log(`[XNote] Downloading: ${videoUrl}`);
-
             chrome.runtime.sendMessage({
                 type: MESSAGE_TYPES.DOWNLOAD_MEDIA,
                 url: videoUrl,
                 filename: filename
             });
-
-            console.log('[XNote] ✓ Download initiated successfully');
-            console.log('[XNote] ========== VIDEO DOWNLOAD COMPLETE ==========');
-            console.log('='.repeat(60));
             showButtonFeedback(buttonElement, 'success');
         } else {
-            console.error('[XNote] ❌ FAILED: Could not resolve video URL by any method');
-            console.error('[XNote] Possible reasons:');
-            console.error('[XNote]   1. Age-restricted content requiring login');
-            console.error('[XNote]   2. Protected/private tweet');
-            console.error('[XNote]   3. Content not available in your region');
-            console.error('[XNote]   4. Twitter changed their data structure');
-            console.log('='.repeat(60));
+            console.error('[XNote] Could not resolve video URL');
             showButtonFeedback(buttonElement, 'error');
         }
 
     } catch (error) {
-        console.error('[XNote] ❌ EXCEPTION during video download:', error);
-        console.error('[XNote] Stack:', error.stack);
-        console.log('='.repeat(60));
+        console.error('[XNote] Video download error:', error);
         showButtonFeedback(buttonElement, 'error');
     }
 }
@@ -893,9 +804,9 @@ function createCommentsDownloadButton() {
     button.className = 'xnote-download-btn xnote-comments-btn';
     button.setAttribute('role', 'button');
     button.setAttribute('tabindex', '0');
-    button.setAttribute('aria-label', 'Download reviews');
+    button.setAttribute('aria-label', t('btn_download_reviews'));
     button.innerHTML = `
-        <span class="xnote-btn-text">download reviews</span>
+        <span class="xnote-btn-text">${t('btn_download_reviews')}</span>
     `;
     return button;
 }
@@ -1064,7 +975,7 @@ function injectAdvancedArea(tweetElement) {
     // Zip Download Button
     const zipBtn = document.createElement('div');
     zipBtn.className = 'xnote-btn-primary';
-    zipBtn.textContent = '下载资源包';
+    zipBtn.textContent = t('btn_download_pack');
     zipBtn.onclick = (e) => {
         e.stopPropagation();
         handleBoxDownload(tweetElement, zipBtn);
@@ -1073,7 +984,7 @@ function injectAdvancedArea(tweetElement) {
     // Review Data Button
     const reviewBtn = document.createElement('div');
     reviewBtn.className = 'xnote-btn-secondary';
-    reviewBtn.textContent = '评论数据';
+    reviewBtn.textContent = t('btn_review_data');
     reviewBtn.onclick = (e) => {
         e.stopPropagation();
         handleReviewData(tweetElement, reviewBtn);
@@ -1092,7 +1003,7 @@ async function handleBoxDownload(tweetElement, button) {
     if (button.textContent.includes('...')) return;
 
     const originalText = button.textContent;
-    button.textContent = '打包中...';
+    button.textContent = t('btn_packing');
 
     try {
         const username = extractUsername(tweetElement);
@@ -1121,57 +1032,35 @@ async function handleBoxDownload(tweetElement, button) {
         }
 
         // 3. Video (if any)
-        console.log('[XNote Zip] >>> STEP 3: Checking for video');
-        console.log('[XNote Zip] Tweet element:', tweetElement);
-        const hasVideoElement = hasVideo(tweetElement);
-        console.log('[XNote Zip] Has video element:', hasVideoElement);
-
-        if (hasVideoElement) {
-            console.log('[XNote Zip] Video detected, attempting to resolve URL...');
+        if (hasVideo(tweetElement)) {
             let videoUrl = null;
 
             // Method 1: Try Syndication API via background script
-            console.log('[XNote Zip] >>> Method 1: Trying Syndication API...');
             try {
                 const response = await chrome.runtime.sendMessage({
                     type: MESSAGE_TYPES.RESOLVE_VIDEO_URL_ONLY,
                     tweetId: tweetId
                 });
-                console.log('[XNote Zip] Syndication API response:', response);
-
                 if (response && response.success && response.url) {
-                    console.log('[XNote Zip] ✓ Syndication API succeeded!');
                     videoUrl = response.url;
-                } else {
-                    console.log('[XNote Zip] ✗ Syndication API failed (likely age-restricted)');
                 }
             } catch (e) {
-                console.error('[XNote Zip] Syndication API error:', e);
+                console.error('[XNote] Syndication API error:', e);
             }
 
             // Method 2: Try React props extraction (fallback)
             if (!videoUrl) {
-                console.log('[XNote Zip] >>> Method 2: Trying React props extraction...');
                 videoUrl = await requestVideoUrlFromReact();
-                console.log('[XNote Zip] React props result:', videoUrl || 'NOT FOUND');
             }
 
             // Download the video if URL was found
             if (videoUrl) {
-                console.log('[XNote Zip] >>> Downloading video from:', videoUrl);
                 try {
                     const vidBlob = await fetch(videoUrl).then(r => r.blob());
-                    console.log('[XNote Zip] ✓ Video blob fetched, size:', vidBlob.size);
                     zip.file("video.mp4", vidBlob);
                 } catch (e) {
-                    console.error('[XNote Zip] ✗ Video fetch failed:', e);
+                    console.error('[XNote] Video fetch failed:', e);
                 }
-            } else {
-                console.error('[XNote Zip] ✗ FAILED: Could not resolve video URL by any method');
-                console.error('[XNote Zip] Possible reasons:');
-                console.error('[XNote Zip]   1. Age-restricted content (TweetTombstone from API)');
-                console.error('[XNote Zip]   2. React props don\'t contain video data');
-                console.error('[XNote Zip]   3. Twitter changed their data structure');
             }
         }
 
@@ -1188,13 +1077,12 @@ async function handleBoxDownload(tweetElement, button) {
         document.body.removeChild(link);
         URL.revokeObjectURL(zipUrl);
 
-        button.textContent = '完成';
+        button.textContent = t('btn_done');
         setTimeout(() => button.textContent = originalText, 2000);
 
     } catch (e) {
         console.error('Zip download failed', e);
-        alert('打包下载失败: ' + e.message);
-        button.textContent = '失败';
+        button.textContent = t('btn_failed');
         setTimeout(() => button.textContent = originalText, 2000);
     }
 }
@@ -1214,9 +1102,9 @@ function handleReviewData(tweetElement, button) {
     overlay.innerHTML = `
         <div class="xnote-modal">
             <div class="xnote-modal-header">
-                <div class="xnote-modal-title">评论数据分析</div>
+                <div class="xnote-modal-title">${t('modal_title')}</div>
                 <div class="xnote-modal-actions">
-                    <button class="xnote-btn-primary" id="xnote-export-csv" style="height: 28px; font-size: 13px;">导出 CSV</button>
+                    <button class="xnote-btn-primary" id="xnote-export-csv" style="height: 28px; font-size: 13px;">${t('btn_export_csv')}</button>
                     <button class="xnote-close-btn" id="xnote-close-modal">✕</button>
                 </div>
             </div>
@@ -1224,13 +1112,13 @@ function handleReviewData(tweetElement, button) {
                 <table class="xnote-data-table">
                     <thead>
                         <tr>
-                            <th>评论内容</th>
-                            <th>评论人</th>
-                            <th>发布时间</th>
-                            <th>点赞</th>
-                            <th>评论</th>
-                            <th>转发</th>
-                            <th>浏览</th>
+                            <th>${t('th_content')}</th>
+                            <th>${t('th_author')}</th>
+                            <th>${t('th_time')}</th>
+                            <th>${t('th_likes')}</th>
+                            <th>${t('th_replies')}</th>
+                            <th>${t('th_retweets')}</th>
+                            <th>${t('th_views')}</th>
                         </tr>
                     </thead>
                     <tbody id="xnote-table-body">
@@ -1411,7 +1299,7 @@ function createFloatingButton() {
     // Add tooltip
     const tooltip = document.createElement('span');
     tooltip.className = 'xnote-floating-tooltip';
-    tooltip.textContent = 'XNote';
+    tooltip.textContent = t('tooltip_xnote');
     button.appendChild(tooltip);
 
     return button;
@@ -1434,13 +1322,13 @@ function handleFloatingButtonClick() {
 
     // Menu items
     const items = [
-        { label: 'About XNote', action: () => console.log('[XNote] XNote Downloader v1.0') }
+        { label: t('menu_about'), action: () => console.log('[XNote] XNote Downloader v1.0') }
     ];
 
     // Add "Download Reviews" option if on detail page
     if (isDetailPage()) {
         items.unshift({
-            label: 'Download Reviews',
+            label: t('menu_download_reviews'),
             action: () => {
                 const mainTweet = document.querySelector(TWEET_SELECTOR);
                 if (mainTweet && isMainTweet(mainTweet)) {
