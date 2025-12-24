@@ -1,44 +1,58 @@
 /**
  * XNote Downloader - Popup Script
- * Handles settings UI and persistence.
+ * Handles Community Shield toggle and settings persistence.
  */
 
-// Default settings
-const DEFAULT_SETTINGS = {
-    autoRename: true,
-    origQuality: true
-};
+// Storage key
+const STORAGE_KEY = 'enableBlocklist';
 
 // DOM elements
-const autoRenameToggle = document.getElementById('autoRename');
-const origQualityToggle = document.getElementById('origQuality');
+const enableBlocklistToggle = document.getElementById('enableBlocklist');
+const statusBadge = document.getElementById('statusBadge');
 
-// Load settings from storage
-async function loadSettings() {
-    try {
-        const result = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-        autoRenameToggle.checked = result.autoRename;
-        origQualityToggle.checked = result.origQuality;
-    } catch (error) {
-        console.error('Failed to load settings:', error);
+/**
+ * Update status badge UI based on toggle state.
+ */
+function updateStatusBadge(enabled) {
+    if (enabled) {
+        statusBadge.textContent = '● Protected';
+        statusBadge.className = 'status-badge active';
+    } else {
+        statusBadge.textContent = '○ Disabled';
+        statusBadge.className = 'status-badge inactive';
     }
 }
 
-// Save settings to storage
+/**
+ * Load settings from storage.
+ */
+async function loadSettings() {
+    try {
+        const result = await chrome.storage.local.get({ [STORAGE_KEY]: true }); // Default: true (enabled)
+        const enabled = result[STORAGE_KEY];
+        enableBlocklistToggle.checked = enabled;
+        updateStatusBadge(enabled);
+    } catch (error) {
+        console.error('[XNote Popup] Failed to load settings:', error);
+    }
+}
+
+/**
+ * Save settings to storage.
+ */
 async function saveSettings() {
     try {
-        await chrome.storage.sync.set({
-            autoRename: autoRenameToggle.checked,
-            origQuality: origQualityToggle.checked
-        });
+        const enabled = enableBlocklistToggle.checked;
+        await chrome.storage.local.set({ [STORAGE_KEY]: enabled });
+        updateStatusBadge(enabled);
+        console.log('[XNote Popup] Community Shield:', enabled ? 'ON' : 'OFF');
     } catch (error) {
-        console.error('Failed to save settings:', error);
+        console.error('[XNote Popup] Failed to save settings:', error);
     }
 }
 
 // Event listeners
-autoRenameToggle.addEventListener('change', saveSettings);
-origQualityToggle.addEventListener('change', saveSettings);
+enableBlocklistToggle.addEventListener('change', saveSettings);
 
 // Initialize
 loadSettings();

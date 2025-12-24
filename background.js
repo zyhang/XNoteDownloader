@@ -267,6 +267,25 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
 });
 
+// Listen for Community Shield toggle changes
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') return;
+
+    // When shield is turned ON, re-fetch community blocklist
+    if (changes.enableBlocklist) {
+        const newValue = changes.enableBlocklist.newValue;
+        const oldValue = changes.enableBlocklist.oldValue;
+
+        console.log(`[XNote BG] Community Shield changed: ${oldValue} → ${newValue}`);
+
+        // Only fetch when turning ON (false → true or undefined → true)
+        if (newValue === true && oldValue !== true) {
+            console.log('[XNote BG] Shield ON - refreshing community blocklist...');
+            fetchCloudBlocklist();
+        }
+    }
+});
+
 // ============================================================================
 // Lifecycle Events
 // ============================================================================

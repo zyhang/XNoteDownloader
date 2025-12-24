@@ -37,6 +37,34 @@ const SCROLL_WAIT_MIN = 1500;
 const SCROLL_WAIT_MAX = 2500;
 const MAX_EMPTY_SCROLLS = 3;
 
+// Sift Action Bar SVG Icons (18.75px, line-style matching Twitter)
+const SIFT_ICONS = {
+    // Download arrow icon
+    download: `<svg viewBox="0 0 24 24" width="18.75" height="18.75" fill="currentColor">
+        <path d="M12 2.59l5.7 5.7-1.41 1.42L13 6.41V16h-2V6.41l-3.3 3.3-1.41-1.42L12 2.59zM21 15l-.001 3.308c0 1.469-.932 2.692-2.5 2.692H5.5c-1.567 0-2.5-1.223-2.5-2.692V15h2v3.308c0 .29.226.692.5.692h13c.274 0 .5-.402.5-.692V15h2z" transform="rotate(180 12 12)"/>
+    </svg>`,
+
+    // Archive/box icon (for zip download)
+    archive: `<svg viewBox="0 0 24 24" width="18.75" height="18.75" fill="currentColor">
+        <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10zm-8.01-9l-3 3h2.01v3h2v-3h2.01l-3.01-3z" transform="rotate(180 12 13)"/>
+    </svg>`,
+
+    // Chart icon (for review data)
+    chart: `<svg viewBox="0 0 24 24" width="18.75" height="18.75" fill="currentColor">
+        <path d="M3 3v18h18v-2H5V3H3zm15.293 4.293l-4.5 4.5-3-3-4 4 1.414 1.414L11 11.414l3 3 5.293-5.293 1.414 1.414 1.414-1.414-2.828-2.828z"/>
+    </svg>`,
+
+    // Shield/block icon
+    block: `<svg viewBox="0 0 24 24" width="18.75" height="18.75" fill="currentColor">
+        <path d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12S6.2 22.5 12 22.5 22.5 17.8 22.5 12 17.8 1.5 12 1.5zM4 12c0-1.85.63-3.55 1.69-4.9L16.9 18.31C15.55 19.37 13.85 20 12 20c-4.41 0-8-3.59-8-8zm14.31 4.9L7.1 5.69C8.45 4.63 10.15 4 12 4c4.41 0 8 3.59 8 8 0 1.85-.63 3.55-1.69 4.9z"/>
+    </svg>`,
+
+    // Three dots menu icon
+    menu: `<svg viewBox="0 0 24 24" width="18.75" height="18.75" fill="currentColor">
+        <path d="M3 12c0-1.1.9-2 2-2s2 .9 2 2-.9 2-2 2-2-.9-2-2zm9 2c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm7 0c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/>
+    </svg>`
+};
+
 // Message types (must match background.js)
 const MESSAGE_TYPES = {
     DOWNLOAD_MEDIA: 'DOWNLOAD_MEDIA',
@@ -73,12 +101,14 @@ let lastUrl = window.location.href;
 // Combined blocklist - Set for O(1) lookups (merges community + local)
 let blockedUsersSet = new Set();
 
+// Community Shield toggle state (default: true = enabled)
+let enableBlocklist = true;
+
 /**
- * Initialize blocklist from chrome.storage.local.
- * Merges both communityBlocklist and localBlocklist into one Set.
+ * Initialize blocklist and settings from chrome.storage.local.
  */
 function initBlocklistFromStorage() {
-    chrome.storage.local.get(['communityBlocklist', 'localBlocklist'], (result) => {
+    chrome.storage.local.get(['communityBlocklist', 'localBlocklist', 'enableBlocklist'], (result) => {
         const communityUsers = result.communityBlocklist || [];
         const localUsers = result.localBlocklist || [];
 
@@ -88,17 +118,69 @@ function initBlocklistFromStorage() {
             ...localUsers.map(u => u.toLowerCase())
         ]);
 
+        // Load toggle state (default: true if not set)
+        enableBlocklist = result.enableBlocklist !== false;
+
+        // Set initial body class for CSS-based visibility control
+        updateShieldBodyClass(enableBlocklist);
+
         console.log(`[XNote] Loaded blocklist: ${communityUsers.length} community + ${localUsers.length} local = ${blockedUsersSet.size} total`);
+        console.log(`[XNote] Community Shield: ${enableBlocklist ? 'ON' : 'OFF'}`);
     });
 }
 
-// Listen for storage changes (when background updates either blocklist)
+/**
+ * Update shield state via body class (instant CSS-based toggle).
+ * @param {boolean} enabled - Whether shield is ON
+ */
+function updateShieldBodyClass(enabled) {
+    if (enabled) {
+        document.body.classList.add('xnote-shield-on');
+        console.log('[XNote] Shield ON - body class added');
+    } else {
+        document.body.classList.remove('xnote-shield-on');
+        console.log('[XNote] Shield OFF - body class removed');
+    }
+}
+
+/**
+ * Rescan all visible tweets and fold blocked users (when shield is turned ON).
+ */
+function rescanAllTweets() {
+    const allTweets = document.querySelectorAll(TWEET_SELECTOR);
+    console.log(`[XNote] Rescanning ${allTweets.length} tweets (Shield ON)`);
+
+    allTweets.forEach(tweet => {
+        // Only check if not already folded
+        if (!tweet.classList.contains('xnote-tweet-folded')) {
+            checkAndFoldTweet(tweet);
+        }
+    });
+}
+
+// Listen for storage changes (blocklist updates or toggle changes)
 chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
 
-    // Check if either blocklist changed
+    // Handle enableBlocklist toggle change
+    if (changes.enableBlocklist) {
+        const newValue = changes.enableBlocklist.newValue;
+        const oldValue = changes.enableBlocklist.oldValue;
+
+        console.log(`[XNote] Community Shield changed: ${oldValue} → ${newValue}`);
+        enableBlocklist = newValue !== false;
+
+        // Instantly toggle visibility via body class
+        updateShieldBodyClass(enableBlocklist);
+
+        // If turning ON, also rescan for any new blocked users
+        if (enableBlocklist) {
+            rescanAllTweets();
+        }
+    }
+
+    // Handle blocklist updates
     if (changes.communityBlocklist || changes.localBlocklist) {
-        // Re-fetch both lists to ensure consistency
         chrome.storage.local.get(['communityBlocklist', 'localBlocklist'], (result) => {
             const communityUsers = result.communityBlocklist || [];
             const localUsers = result.localBlocklist || [];
@@ -110,8 +192,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
             console.log(`[XNote] Blocklist updated: ${blockedUsersSet.size} users total`);
 
-            // Re-scan visible tweets to apply updated blocklist
-            debouncedScan();
+            // Re-scan visible tweets if shield is ON
+            if (enableBlocklist) {
+                debouncedScan();
+            }
         });
     }
 });
@@ -799,6 +883,189 @@ function createSiftBlockButton() {
     return button;
 }
 
+// ============================================================================
+// Sift Action Bar Component (Native Twitter Style)
+// ============================================================================
+
+let activeSiftPopover = null;
+let popoverHideTimeout = null;
+
+/**
+ * Create a single icon button for the Sift Action Bar.
+ * @param {string} iconSvg - SVG icon string
+ * @param {string} tooltipText - Text to show in tooltip
+ * @param {string} className - Additional class name
+ * @param {boolean} isDanger - If true, uses red color scheme
+ * @returns {HTMLElement}
+ */
+function createSiftIconButton(iconSvg, tooltipText, className = '', isDanger = false) {
+    const button = document.createElement('div');
+    button.className = `sift-icon-btn ${className} ${isDanger ? 'sift-danger' : ''}`;
+    button.setAttribute('role', 'button');
+    button.setAttribute('tabindex', '0');
+    button.setAttribute('aria-label', tooltipText);
+
+    // Icon
+    const icon = document.createElement('div');
+    icon.className = 'sift-icon';
+    icon.innerHTML = iconSvg;
+    button.appendChild(icon);
+
+    // Tooltip
+    const tooltip = document.createElement('div');
+    tooltip.className = 'sift-tooltip';
+    tooltip.textContent = tooltipText;
+    button.appendChild(tooltip);
+
+    // Show tooltip on hover with delay
+    let tooltipTimeout;
+    button.addEventListener('mouseenter', () => {
+        tooltipTimeout = setTimeout(() => {
+            tooltip.classList.add('show');
+        }, 500);
+    });
+
+    button.addEventListener('mouseleave', () => {
+        clearTimeout(tooltipTimeout);
+        tooltip.classList.remove('show');
+    });
+
+    return button;
+}
+
+/**
+ * Create the Sift popover menu.
+ * @param {HTMLElement} tweetElement - The tweet element
+ * @returns {HTMLElement}
+ */
+function createSiftPopover(tweetElement) {
+    const popover = document.createElement('div');
+    popover.className = 'sift-popover';
+
+    // Menu items
+    const menuItems = [
+        { icon: SIFT_ICONS.archive, label: t('btn_download_zip') || 'Download Zip', action: 'zip', danger: false },
+        { icon: SIFT_ICONS.chart, label: t('btn_review_data') || 'Review Data', action: 'review', danger: false },
+        { icon: SIFT_ICONS.block, label: t('btn_sift_block') || 'Sift Block', action: 'block', danger: true }
+    ];
+
+    menuItems.forEach(item => {
+        const menuItem = document.createElement('div');
+        menuItem.className = `sift-popover-item ${item.danger ? 'sift-danger' : ''}`;
+        menuItem.innerHTML = `
+            <div class="sift-popover-icon">${item.icon}</div>
+            <span class="sift-popover-label">${item.label}</span>
+        `;
+        menuItem.dataset.action = item.action;
+        popover.appendChild(menuItem);
+    });
+
+    return popover;
+}
+
+/**
+ * Show the Sift popover menu.
+ * @param {HTMLElement} trigger - The trigger button
+ * @param {HTMLElement} popover - The popover element
+ */
+function showSiftPopover(trigger, popover) {
+    // Hide any existing popover
+    hideSiftPopover();
+
+    // Position relative to trigger
+    const rect = trigger.getBoundingClientRect();
+    popover.style.position = 'fixed';
+    popover.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+    popover.style.left = `${rect.left + rect.width / 2}px`;
+    popover.style.transform = 'translateX(-50%)';
+
+    document.body.appendChild(popover);
+    activeSiftPopover = popover;
+
+    // Add show class for animation
+    requestAnimationFrame(() => {
+        popover.classList.add('show');
+    });
+}
+
+/**
+ * Hide the active Sift popover.
+ */
+function hideSiftPopover() {
+    if (activeSiftPopover) {
+        activeSiftPopover.classList.remove('show');
+        setTimeout(() => {
+            if (activeSiftPopover && activeSiftPopover.parentNode) {
+                activeSiftPopover.remove();
+            }
+            activeSiftPopover = null;
+        }, 150);
+    }
+}
+
+/**
+ * Create the Sift Action Bar for a tweet.
+ * List view: Download + Block icons
+ * Detail view: Download + Block + Comments icons
+ * @param {HTMLElement} tweetElement - The tweet element
+ * @param {boolean} isDetail - Whether this is a detail page
+ * @returns {HTMLElement}
+ */
+function createSiftActionBar(tweetElement, isDetail = false) {
+    const container = document.createElement('div');
+    container.className = 'sift-action-bar';
+
+    // Download button (always visible) - uses zip package download
+    const downloadBtn = createSiftIconButton(
+        SIFT_ICONS.download,
+        '打包下载',
+        'sift-download-btn'
+    );
+
+    downloadBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        handleBoxDownload(tweetElement);
+    });
+
+    container.appendChild(downloadBtn);
+
+    // Block button (always visible)
+    const blockBtn = createSiftIconButton(
+        SIFT_ICONS.block,
+        '上报拉黑',
+        'sift-block-btn',
+        true // isDanger
+    );
+
+    blockBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        handleSiftBlock(tweetElement, blockBtn);
+    });
+
+    container.appendChild(blockBtn);
+
+    // Comments button (only on detail page)
+    if (isDetail) {
+        const commentsBtn = createSiftIconButton(
+            SIFT_ICONS.chart,
+            t('btn_download_reviews') || 'Download Comments',
+            'sift-comments-btn'
+        );
+
+        commentsBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            handleCommentsDownload(tweetElement, commentsBtn);
+        });
+
+        container.appendChild(commentsBtn);
+    }
+
+    return container;
+}
+
 /**
  * Extract user ID from tweet element.
  * Twitter stores the user ID in various places.
@@ -1073,7 +1340,37 @@ function handleCommentsDownloadClick(e, tweetElement, buttonElement) {
 }
 
 /**
+ * Inject unified Sift Action Bar into a tweet's action bar.
+ * List view: Download + Block
+ * Detail view main tweet: Download + Block + Comments
+ */
+function injectSiftActionBar(tweetElement) {
+    const actionBar = tweetElement.querySelector(ACTION_BAR_SELECTOR);
+
+    if (!actionBar) {
+        return;
+    }
+
+    // Don't inject if tweet is already folded (user in blocklist)
+    if (tweetElement.classList.contains('xnote-tweet-folded')) {
+        return;
+    }
+
+    // Don't re-inject if already present
+    if (actionBar.querySelector('.sift-action-bar')) {
+        return;
+    }
+
+    // Determine if this is a detail page main tweet
+    const isDetail = isDetailPage() && isMainTweet(tweetElement);
+
+    const siftBar = createSiftActionBar(tweetElement, isDetail);
+    actionBar.appendChild(siftBar);
+}
+
+/**
  * Inject media download button into any tweet's action bar.
+ * @deprecated - Use injectSiftActionBar instead
  */
 function injectMediaDownloadButton(tweetElement) {
     const actionBar = tweetElement.querySelector(ACTION_BAR_SELECTOR);
@@ -1246,6 +1543,11 @@ function unfoldTweet(tweetElement) {
  * @param {HTMLElement} tweetElement - The tweet to check
  */
 function checkAndFoldTweet(tweetElement) {
+    // Skip if Community Shield is OFF
+    if (!enableBlocklist) {
+        return;
+    }
+
     // Skip if already folded
     if (tweetElement.classList.contains('xnote-tweet-folded')) {
         return;
@@ -1274,7 +1576,7 @@ function checkAndFoldTweet(tweetElement) {
 // ============================================================================
 
 /**
- * Process a tweet element - inject appropriate buttons and check blocklist.
+ * Process a tweet element - inject Sift Action Bar and check blocklist.
  */
 function processTweet(tweet) {
     if (processedTweets.has(tweet)) {
@@ -1285,11 +1587,8 @@ function processTweet(tweet) {
     // Check if tweet is from a blocked user and fold if necessary
     checkAndFoldTweet(tweet);
 
-    // Always inject media download button on all tweets
-    injectMediaDownloadButton(tweet);
-
-    // Inject Sift Block button on all tweets
-    injectSiftBlockButton(tweet);
+    // Inject unified Sift Action Bar (replaces multiple button injections)
+    injectSiftActionBar(tweet);
 }
 
 /**
@@ -1309,9 +1608,8 @@ function processMainTweet(tweet) {
     }
 
     processedMainTweets.add(tweet);
-    // injectCommentsDownloadButton(tweet); // Removed as per request
-    injectAdvancedArea(tweet);
-    console.log('[XNote] Injected advanced/comments buttons into main tweet');
+    // Advanced area buttons removed - all actions now in Sift Action Bar
+    console.log('[XNote] Processed main tweet on detail page');
 }
 
 /**
@@ -1368,11 +1666,15 @@ function injectAdvancedArea(tweetElement) {
 /**
  * Handle "Download Zip" Action.
  */
-async function handleBoxDownload(tweetElement, button) {
-    if (button.textContent.includes('...')) return;
+async function handleBoxDownload(tweetElement, button = null) {
+    // Handle loading state
+    if (button) {
+        if (button.classList.contains('loading')) return;
+        button.classList.add('loading');
+    }
 
-    const originalText = button.textContent;
-    button.textContent = t('btn_packing');
+    // For progress display
+    const originalText = button ? button.textContent : '';
 
     try {
         const username = extractUsername(tweetElement);
@@ -1446,13 +1748,22 @@ async function handleBoxDownload(tweetElement, button) {
         document.body.removeChild(link);
         URL.revokeObjectURL(zipUrl);
 
-        button.textContent = t('btn_done');
-        setTimeout(() => button.textContent = originalText, 2000);
+        // Success - remove loading state
+        if (button) {
+            button.classList.remove('loading');
+            button.classList.add('success');
+            setTimeout(() => button.classList.remove('success'), 2000);
+        }
+        showToast(t('btn_done') || 'Download complete!');
 
     } catch (e) {
         console.error('Zip download failed', e);
-        button.textContent = t('btn_failed');
-        setTimeout(() => button.textContent = originalText, 2000);
+        if (button) {
+            button.classList.remove('loading');
+            button.classList.add('error');
+            setTimeout(() => button.classList.remove('error'), 2000);
+        }
+        showToast(t('btn_failed') || 'Download failed');
     }
 }
 

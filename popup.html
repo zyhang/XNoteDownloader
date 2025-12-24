@@ -13,61 +13,71 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      width: 280px;
-      padding: 16px;
-      background: #ffffff;
+      width: 250px;
+      padding: 20px;
+      background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
       color: #0f1419;
     }
 
     .header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #eff3f4;
+      text-align: center;
+      margin-bottom: 20px;
     }
 
-    .header h1 {
-      font-size: 16px;
-      font-weight: 700;
+    .logo {
+      font-size: 22px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #1d9bf0 0%, #1a8cd8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.5px;
     }
 
     .version {
-      font-size: 11px;
+      font-size: 10px;
       color: #536471;
-      background: #eff3f4;
-      padding: 2px 6px;
-      border-radius: 4px;
+      margin-top: 4px;
     }
 
-    .settings-group {
-      margin-bottom: 12px;
+    .setting-card {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      border: 1px solid #e1e8ed;
     }
 
     .setting-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 0;
+      gap: 12px;
+    }
+
+    .setting-content {
+      flex: 1;
     }
 
     .setting-label {
       font-size: 14px;
+      font-weight: 600;
       color: #0f1419;
     }
 
     .setting-desc {
-      font-size: 12px;
+      font-size: 11px;
       color: #536471;
-      margin-top: 2px;
+      margin-top: 4px;
+      line-height: 1.4;
     }
 
-    /* Toggle Switch */
+    /* iOS-style Toggle Switch */
     .toggle {
       position: relative;
-      width: 44px;
-      height: 24px;
+      width: 51px;
+      height: 31px;
+      flex-shrink: 0;
     }
 
     .toggle input {
@@ -83,82 +93,86 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background-color: #cfd9de;
-      transition: 0.2s;
-      border-radius: 24px;
+      background-color: #e9e9eb;
+      transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 31px;
     }
 
     .toggle-slider:before {
       position: absolute;
       content: "";
-      height: 18px;
-      width: 18px;
-      left: 3px;
-      bottom: 3px;
+      height: 27px;
+      width: 27px;
+      left: 2px;
+      bottom: 2px;
       background-color: white;
-      transition: 0.2s;
+      transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
 
     .toggle input:checked + .toggle-slider {
-      background-color: rgb(29, 155, 240);
+      background-color: #34c759;
     }
 
     .toggle input:checked + .toggle-slider:before {
       transform: translateX(20px);
     }
 
+    .toggle input:focus + .toggle-slider {
+      box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.3);
+    }
+
+    .status-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-top: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .status-badge.active {
+      background: rgba(52, 199, 89, 0.15);
+      color: #34c759;
+    }
+
+    .status-badge.inactive {
+      background: rgba(142, 142, 147, 0.15);
+      color: #8e8e93;
+    }
+
     .footer {
       margin-top: 16px;
-      padding-top: 12px;
-      border-top: 1px solid #eff3f4;
       text-align: center;
-      font-size: 11px;
-      color: #536471;
-    }
-
-    .footer a {
-      color: rgb(29, 155, 240);
-      text-decoration: none;
-    }
-
-    .footer a:hover {
-      text-decoration: underline;
+      font-size: 10px;
+      color: #8e8e93;
     }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>XNote Downloader</h1>
-    <span class="version">v1.0.0</span>
+    <div class="logo">XNote</div>
+    <div class="version">v1.0.0</div>
   </div>
 
-  <div class="settings-group">
+  <div class="setting-card">
     <div class="setting-item">
-      <div>
-        <div class="setting-label">Auto Rename</div>
-        <div class="setting-desc">Use format: xnote_user_id.ext</div>
+      <div class="setting-content">
+        <div class="setting-label">Community Shield</div>
+        <div class="setting-desc">Hide tweets from known spam & scam accounts</div>
+        <div class="status-badge active" id="statusBadge">● Protected</div>
       </div>
       <label class="toggle">
-        <input type="checkbox" id="autoRename" checked>
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-
-    <div class="setting-item">
-      <div>
-        <div class="setting-label">Original Quality</div>
-        <div class="setting-desc">Always download highest resolution</div>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" id="origQuality" checked>
+        <input type="checkbox" id="enableBlocklist" checked>
         <span class="toggle-slider"></span>
       </label>
     </div>
   </div>
 
   <div class="footer">
-    Made with ❤️ for X power users
+    Powered by community blocklist
   </div>
 
   <script src="popup.js"></script>

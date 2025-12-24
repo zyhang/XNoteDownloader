@@ -4,6 +4,175 @@
  * Designed to blend seamlessly with X's native UI.
  */
 
+/* ============================================================================
+   Sift Action Bar - Native Twitter Style Component
+   ============================================================================ */
+
+/* Main container - aligns with Twitter's action buttons */
+.sift-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-left: 4px;
+}
+
+/* Individual icon button */
+.sift-icon-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38.5px;
+  height: 38.5px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.sift-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(83, 100, 113);
+  transition: color 0.2s ease;
+}
+
+/* Hover state - blue circular background */
+.sift-icon-btn:hover {
+  background-color: rgba(29, 155, 240, 0.1);
+}
+
+.sift-icon-btn:hover .sift-icon {
+  color: rgb(29, 155, 240);
+}
+
+/* Danger variant (for block action) */
+.sift-icon-btn.sift-danger:hover {
+  background-color: rgba(244, 33, 46, 0.1);
+}
+
+.sift-icon-btn.sift-danger:hover .sift-icon {
+  color: rgb(244, 33, 46);
+}
+
+/* Tooltip - appears ABOVE icon after 0.5s delay */
+.sift-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background-color: rgba(15, 20, 25, 0.95);
+  color: white;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease;
+  z-index: 99999;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.sift-tooltip.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Popover Menu */
+.sift-popover {
+  background: white;
+  border: 1px solid rgb(207, 217, 222);
+  border-radius: 12px;
+  box-shadow: rgba(101, 119, 134, 0.2) 0px 0px 15px, rgba(101, 119, 134, 0.15) 0px 0px 3px 1px;
+  min-width: 180px;
+  overflow: hidden;
+  z-index: 10004;
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.sift-popover.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Popover items */
+.sift-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.sift-popover-item:hover {
+  background-color: rgba(15, 20, 25, 0.05);
+}
+
+.sift-popover-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(15, 20, 25);
+}
+
+.sift-popover-label {
+  font-size: 15px;
+  font-weight: 400;
+  color: rgb(15, 20, 25);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Danger item in popover */
+.sift-popover-item.sift-danger:hover {
+  background-color: rgba(244, 33, 46, 0.1);
+}
+
+.sift-popover-item.sift-danger .sift-popover-icon,
+.sift-popover-item.sift-danger .sift-popover-label {
+  color: rgb(244, 33, 46);
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .sift-icon {
+    color: rgb(139, 152, 165);
+  }
+
+  .sift-tooltip {
+    background-color: rgba(231, 233, 234, 0.95);
+    color: rgb(15, 20, 25);
+  }
+
+  .sift-popover {
+    background: rgb(21, 32, 43);
+    border-color: rgb(56, 68, 77);
+  }
+
+  .sift-popover-item:hover {
+    background-color: rgba(239, 243, 244, 0.1);
+  }
+
+  .sift-popover-icon,
+  .sift-popover-label {
+    color: rgb(231, 233, 234);
+  }
+
+  .sift-popover-item.sift-danger .sift-popover-icon,
+  .sift-popover-item.sift-danger .sift-popover-label {
+    color: rgb(244, 33, 46);
+  }
+}
+
 /* Download button container */
 .xnote-download-btn {
   display: flex;
@@ -108,9 +277,8 @@
   color: white;
 }
 
-/* Blocked Tweet Overlay */
+/* Blocked Tweet Overlay - base styles (visibility controlled by body.xnote-shield-on) */
 .xnote-blocked-overlay {
-  display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
@@ -131,9 +299,8 @@
    Community Blocklist Auto-Fold UI
    ============================================================================ */
 
-/* Fold Bar - Replaces hidden tweet content */
+/* Fold Bar - Replaces hidden tweet content (visibility controlled by body.xnote-shield-on) */
 .xnote-fold-bar {
-  display: flex;
   align-items: center;
   justify-content: space-between;
   height: 44px;
@@ -173,9 +340,31 @@
   border-color: rgb(83, 100, 113);
 }
 
-/* Hidden content class */
-.xnote-content-hidden {
+/* ============================================================================
+   Body-Class-Based Shield Control (Instant Toggle)
+   ============================================================================ */
+
+/* Hidden content - only hides when shield is ON */
+body.xnote-shield-on .xnote-content-hidden {
   display: none !important;
+}
+
+/* Fold bar - only shows when shield is ON */
+.xnote-fold-bar {
+  display: none;
+}
+
+body.xnote-shield-on .xnote-fold-bar {
+  display: flex;
+}
+
+/* Blocked overlay - only shows when shield is ON */
+.xnote-blocked-overlay {
+  display: none;
+}
+
+body.xnote-shield-on .xnote-blocked-overlay {
+  display: flex;
 }
 
 /* Folded tweet marker (for tracking state) */
