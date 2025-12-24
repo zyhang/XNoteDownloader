@@ -10,6 +10,9 @@ const TRANSLATIONS = {
         btn_download_pack: 'Save All',
         btn_review_data: 'Insights',
         btn_block: 'Block',
+        btn_sift_block: 'Sift Block',
+        btn_reporting: 'Reporting...',
+        status_blocked_reported: '🚫 Blocked & Reported to Sift Community',
         btn_scraping: 'Scraping...',
         btn_export_csv: 'Export CSV',
         btn_packing: 'Packing...',
@@ -41,7 +44,11 @@ const TRANSLATIONS = {
 
         // Menu Items
         menu_about: 'About XNote',
-        menu_download_reviews: 'Download Reviews'
+        menu_download_reviews: 'Download Reviews',
+
+        // Fold UI
+        fold_warning: '⚠️ Blocked by Sift Community',
+        btn_show_anyway: 'Show Anyway'
     },
 
     // Simplified Chinese
@@ -49,6 +56,9 @@ const TRANSLATIONS = {
         btn_download_pack: '打包下载',
         btn_review_data: '评论分析',
         btn_block: '拉黑',
+        btn_sift_block: 'Sift 拉黑',
+        btn_reporting: '上报中...',
+        status_blocked_reported: '🚫 已拉黑并上报至 Sift 社区',
         btn_scraping: '抓取中...',
         btn_export_csv: '导出 CSV',
         btn_packing: '打包中...',
@@ -75,7 +85,10 @@ const TRANSLATIONS = {
         tooltip_xnote: 'XNote',
 
         menu_about: '关于 XNote',
-        menu_download_reviews: '下载评论'
+        menu_download_reviews: '下载评论',
+
+        fold_warning: '⚠️ 已被 Sift 社区拉黑',
+        btn_show_anyway: '仍然显示'
     },
 
     // Traditional Chinese
@@ -83,6 +96,9 @@ const TRANSLATIONS = {
         btn_download_pack: '打包下載',
         btn_review_data: '留言分析',
         btn_block: '封鎖',
+        btn_sift_block: 'Sift 封鎖',
+        btn_reporting: '回報中...',
+        status_blocked_reported: '🚫 已封鎖並回報至 Sift 社群',
         btn_scraping: '擷取中...',
         btn_export_csv: '匯出 CSV',
         btn_packing: '打包中...',
@@ -109,7 +125,10 @@ const TRANSLATIONS = {
         tooltip_xnote: 'XNote',
 
         menu_about: '關於 XNote',
-        menu_download_reviews: '下載留言'
+        menu_download_reviews: '下載留言',
+
+        fold_warning: '⚠️ 已被 Sift 社群封鎖',
+        btn_show_anyway: '仍然顯示'
     },
 
     // Japanese
@@ -117,6 +136,9 @@ const TRANSLATIONS = {
         btn_download_pack: '一括保存',
         btn_review_data: 'コメント分析',
         btn_block: 'ブロック',
+        btn_sift_block: 'Sift ブロック',
+        btn_reporting: '報告中...',
+        status_blocked_reported: '🚫 ブロック済み・Siftコミュニティに報告',
         btn_scraping: '取得中...',
         btn_export_csv: 'CSV出力',
         btn_packing: '作成中...',
@@ -143,7 +165,10 @@ const TRANSLATIONS = {
         tooltip_xnote: 'XNote',
 
         menu_about: 'XNote について',
-        menu_download_reviews: 'コメントを取得'
+        menu_download_reviews: 'コメントを取得',
+
+        fold_warning: '⚠️ Siftコミュニティによりブロック済み',
+        btn_show_anyway: '表示する'
     },
 
     // Korean
@@ -151,6 +176,9 @@ const TRANSLATIONS = {
         btn_download_pack: '모두 저장',
         btn_review_data: '댓글 분석',
         btn_block: '차단',
+        btn_sift_block: 'Sift 차단',
+        btn_reporting: '신고 중...',
+        status_blocked_reported: '🚫 차단 및 Sift 커뮤니티에 신고됨',
         btn_scraping: '수집 중...',
         btn_export_csv: 'CSV 내보내기',
         btn_packing: '압축 중...',
@@ -177,7 +205,10 @@ const TRANSLATIONS = {
         tooltip_xnote: 'XNote',
 
         menu_about: 'XNote 정보',
-        menu_download_reviews: '댓글 다운로드'
+        menu_download_reviews: '댓글 다운로드',
+
+        fold_warning: '⚠️ Sift 커뮤니티에 의해 차단됨',
+        btn_show_anyway: '그래도 보기'
     },
 
     // German
@@ -185,6 +216,9 @@ const TRANSLATIONS = {
         btn_download_pack: 'Alles speichern',
         btn_review_data: 'Analyse',
         btn_block: 'Blockieren',
+        btn_sift_block: 'Sift Block',
+        btn_reporting: 'Melden...',
+        status_blocked_reported: '🚫 Blockiert & An Sift Community gemeldet',
         btn_scraping: 'Erfassen...',
         btn_export_csv: 'CSV exportieren',
         btn_packing: 'Verpacken...',
@@ -211,7 +245,10 @@ const TRANSLATIONS = {
         tooltip_xnote: 'XNote',
 
         menu_about: 'Über XNote',
-        menu_download_reviews: 'Kommentare laden'
+        menu_download_reviews: 'Kommentare laden',
+
+        fold_warning: '⚠️ Von Sift Community blockiert',
+        btn_show_anyway: 'Trotzdem anzeigen'
     },
 
     // French
@@ -219,6 +256,9 @@ const TRANSLATIONS = {
         btn_download_pack: 'Tout sauvegarder',
         btn_review_data: 'Analyse',
         btn_block: 'Bloquer',
+        btn_sift_block: 'Sift Block',
+        btn_reporting: 'Signalement...',
+        status_blocked_reported: '🚫 Bloqué & Signalé à la communauté Sift',
         btn_scraping: 'Extraction...',
         btn_export_csv: 'Exporter CSV',
         btn_packing: 'Compression...',
@@ -245,7 +285,10 @@ const TRANSLATIONS = {
         tooltip_xnote: 'XNote',
 
         menu_about: 'À propos de XNote',
-        menu_download_reviews: 'Télécharger les commentaires'
+        menu_download_reviews: 'Télécharger les commentaires',
+
+        fold_warning: '⚠️ Bloqué par la communauté Sift',
+        btn_show_anyway: 'Afficher quand même'
     },
 
     // Spanish
@@ -253,6 +296,9 @@ const TRANSLATIONS = {
         btn_download_pack: 'Guardar todo',
         btn_review_data: 'Análisis',
         btn_block: 'Bloquear',
+        btn_sift_block: 'Sift Block',
+        btn_reporting: 'Reportando...',
+        status_blocked_reported: '🚫 Bloqueado y Reportado a la comunidad Sift',
         btn_scraping: 'Extrayendo...',
         btn_export_csv: 'Exportar CSV',
         btn_packing: 'Empaquetando...',
@@ -279,7 +325,10 @@ const TRANSLATIONS = {
         tooltip_xnote: 'XNote',
 
         menu_about: 'Acerca de XNote',
-        menu_download_reviews: 'Descargar comentarios'
+        menu_download_reviews: 'Descargar comentarios',
+
+        fold_warning: '⚠️ Bloqueado por la comunidad Sift',
+        btn_show_anyway: 'Mostrar de todos modos'
     }
 };
 

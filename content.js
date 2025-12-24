@@ -5,100 +5,22 @@
 
 console.log('XNote Downloader Loaded');
 
-// Inject React Props Extraction Script (Main World)
-function injectReactPropsScript() {
+// Inject Main World Script (External File)
+// Uses external file to avoid CSP restrictions on inline scripts
+function injectMainWorldScript() {
     const script = document.createElement('script');
-    script.textContent = `
-    (function() {
-        function getReactProps(el) {
-            if (!el) return null;
-            const keys = Object.keys(el);
-            const propKey = keys.find(k => k.startsWith('__reactProps'));
-            return propKey ? el[propKey] : null;
-        }
-        
-        function getReactFiber(el) {
-            if (!el) return null;
-            const keys = Object.keys(el);
-            const fiberKey = keys.find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-            return fiberKey ? el[fiberKey] : null;
-        }
-
-        function findVideoInfoInReact(element) {
-            try {
-                const props = getReactProps(element);
-                const fiber = getReactFiber(element);
-                
-                function searchForVideo(obj, depth = 0) {
-                    if (depth > 20 || !obj || typeof obj !== 'object') return null;
-                    
-                    if (obj.video_info && obj.video_info.variants) {
-                        const variants = obj.video_info.variants.filter(v => v.content_type === 'video/mp4');
-                        if (variants.length > 0) {
-                            variants.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-                            return variants[0].url;
-                        }
-                    }
-                    
-                    if (obj.extended_entities && obj.extended_entities.media) {
-                        for (const m of obj.extended_entities.media) {
-                            if (m.video_info && m.video_info.variants) {
-                                const res = searchForVideo(m, depth + 1);
-                                if (res) return res;
-                            }
-                        }
-                    }
-                    
-                    if (obj.legacy && obj.legacy.extended_entities) {
-                        const res = searchForVideo(obj.legacy.extended_entities, depth + 1);
-                        if (res) return res;
-                    }
-                    
-                    const keysToCheck = ['tweet', 'result', 'media', 'props', 'children', 'memoizedProps', 'stateNode'];
-                    for (const key of keysToCheck) {
-                        if (obj[key] && typeof obj[key] === 'object') {
-                            const res = searchForVideo(obj[key], depth + 1);
-                            if (res) return res;
-                        }
-                    }
-                    
-                    if (Array.isArray(obj)) {
-                        for (let i = 0; i < Math.min(obj.length, 10); i++) {
-                            const res = searchForVideo(obj[i], depth + 1);
-                            if (res) return res;
-                        }
-                    }
-                    
-                    return null;
-                }
-                
-                if (props) {
-                    const url = searchForVideo(props, 0);
-                    if (url) return url;
-                }
-                
-                if (fiber) {
-                    const url = searchForVideo(fiber, 0);
-                    if (url) return url;
-                }
-            } catch (e) {}
-            return null;
-        }
-
-        window.addEventListener('message', (event) => {
-            if (event.data.type === 'XNOTE_GET_VIDEO_URL') {
-                const article = document.querySelector('article[data-testid="tweet"]');
-                const url = findVideoInfoInReact(article);
-                window.postMessage({ type: 'XNOTE_VIDEO_URL_RESULT', url: url, reqId: event.data.reqId }, '*');
-            }
-        });
-    })();
-    `;
+    script.src = chrome.runtime.getURL('inject.js');
+    script.onload = function () {
+        console.log('[XNote] Main world script injected');
+        this.remove();
+    };
+    script.onerror = function () {
+        console.error('[XNote] Failed to inject main world script');
+    };
     (document.head || document.documentElement).appendChild(script);
-    script.remove();
 }
 
-injectReactPropsScript();
+injectMainWorldScript();
 
 // ============================================================================
 // Constants
@@ -119,7 +41,9 @@ const MAX_EMPTY_SCROLLS = 3;
 const MESSAGE_TYPES = {
     DOWNLOAD_MEDIA: 'DOWNLOAD_MEDIA',
     RESOLVE_VIDEO_AND_DOWNLOAD: 'RESOLVE_VIDEO_AND_DOWNLOAD',
-    RESOLVE_VIDEO_URL_ONLY: 'RESOLVE_VIDEO_URL_ONLY'
+    RESOLVE_VIDEO_URL_ONLY: 'RESOLVE_VIDEO_URL_ONLY',
+    BLOCK_USER: 'BLOCK_USER',
+    BLOCK_USER_ACTION: 'BLOCK_USER_ACTION'
 };
 
 // Download arrow SVG icon
@@ -145,6 +69,55 @@ const processedMainTweets = new WeakSet();
 let debounceTimer = null;
 let isScrapingComments = false;
 let lastUrl = window.location.href;
+
+// Combined blocklist - Set for O(1) lookups (merges community + local)
+let blockedUsersSet = new Set();
+
+/**
+ * Initialize blocklist from chrome.storage.local.
+ * Merges both communityBlocklist and localBlocklist into one Set.
+ */
+function initBlocklistFromStorage() {
+    chrome.storage.local.get(['communityBlocklist', 'localBlocklist'], (result) => {
+        const communityUsers = result.communityBlocklist || [];
+        const localUsers = result.localBlocklist || [];
+
+        // Merge both lists into one Set (lowercase for case-insensitive matching)
+        blockedUsersSet = new Set([
+            ...communityUsers.map(u => u.toLowerCase()),
+            ...localUsers.map(u => u.toLowerCase())
+        ]);
+
+        console.log(`[XNote] Loaded blocklist: ${communityUsers.length} community + ${localUsers.length} local = ${blockedUsersSet.size} total`);
+    });
+}
+
+// Listen for storage changes (when background updates either blocklist)
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') return;
+
+    // Check if either blocklist changed
+    if (changes.communityBlocklist || changes.localBlocklist) {
+        // Re-fetch both lists to ensure consistency
+        chrome.storage.local.get(['communityBlocklist', 'localBlocklist'], (result) => {
+            const communityUsers = result.communityBlocklist || [];
+            const localUsers = result.localBlocklist || [];
+
+            blockedUsersSet = new Set([
+                ...communityUsers.map(u => u.toLowerCase()),
+                ...localUsers.map(u => u.toLowerCase())
+            ]);
+
+            console.log(`[XNote] Blocklist updated: ${blockedUsersSet.size} users total`);
+
+            // Re-scan visible tweets to apply updated blocklist
+            debouncedScan();
+        });
+    }
+});
+
+// Initialize blocklist on script load
+initBlocklistFromStorage();
 
 // ============================================================================
 // Progress Overlay
@@ -812,6 +785,266 @@ function createCommentsDownloadButton() {
 }
 
 /**
+ * Create Sift Block button (danger action button).
+ */
+function createSiftBlockButton() {
+    const button = document.createElement('div');
+    button.className = 'xnote-download-btn xnote-sift-block-btn';
+    button.setAttribute('role', 'button');
+    button.setAttribute('tabindex', '0');
+    button.setAttribute('aria-label', t('btn_sift_block'));
+    button.innerHTML = `
+        <span class="xnote-btn-text">${t('btn_sift_block')}</span>
+    `;
+    return button;
+}
+
+/**
+ * Extract user ID from tweet element.
+ * Twitter stores the user ID in various places.
+ */
+function extractUserId(tweetElement) {
+    // Method 1: Look for data-user-id attribute
+    const userIdAttr = tweetElement.querySelector('[data-user-id]');
+    if (userIdAttr) {
+        return userIdAttr.getAttribute('data-user-id');
+    }
+
+    // Method 2: Try to find it in the user link structure
+    // Usually profile links contain the screen name, not user ID
+    // For now, we'll use the username as the identifier
+    const username = extractUsername(tweetElement);
+    if (username && username !== 'unknown') {
+        // Return username as user_id - the backend can handle screen names
+        return username;
+    }
+
+    return null;
+}
+
+/**
+ * Show a toast notification.
+ */
+function showToast(message, duration = 3000) {
+    // Remove existing toast if any
+    const existingToast = document.getElementById('xnote-toast');
+    if (existingToast) {
+        existingToast.remove();
+    }
+
+    const toast = document.createElement('div');
+    toast.id = 'xnote-toast';
+    toast.className = 'xnote-toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    // Trigger fade-in
+    setTimeout(() => toast.classList.add('show'), 10);
+
+    // Auto-remove after duration
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
+// ============================================================================
+// X Block API (via Main World Script)
+// ============================================================================
+
+/**
+ * Block a user using X's internal API via main world script.
+ * Uses postMessage to communicate with injected script running in page context.
+ * @param {string} screenName - The @username to block (without @)
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+function blockUserOnX(screenName) {
+    return new Promise((resolve) => {
+        const reqId = Math.random().toString(36).substring(2);
+
+        const listener = (event) => {
+            if (event.data.type === 'XNOTE_BLOCK_USER_RESULT' && event.data.reqId === reqId) {
+                window.removeEventListener('message', listener);
+                resolve({
+                    success: event.data.success,
+                    error: event.data.error,
+                    data: event.data.data
+                });
+            }
+        };
+
+        window.addEventListener('message', listener);
+
+        // Send request to main world script
+        window.postMessage({
+            type: 'XNOTE_BLOCK_USER',
+            screenName: screenName,
+            reqId: reqId
+        }, '*');
+
+        // Timeout after 10 seconds
+        setTimeout(() => {
+            window.removeEventListener('message', listener);
+            resolve({ success: false, error: 'Request timeout' });
+        }, 10000);
+    });
+}
+
+// ============================================================================
+// Sift Block Handler
+// ============================================================================
+
+/**
+ * Handle Sift Block action - Optimistic UI pattern.
+ * Immediately hides tweet and sends message to background.
+ * Background handles local storage update and cloud report.
+ */
+async function handleSiftBlock(tweetElement, buttonElement) {
+    const screenName = extractUsername(tweetElement);
+    const tweetId = extractTweetId(tweetElement);
+
+    if (!screenName || screenName === 'unknown') {
+        console.error('[XNote] Cannot block: screen_name not found');
+        showButtonFeedback(buttonElement, 'error');
+        return;
+    }
+
+    console.log(`[XNote] Sift Block: @${screenName} (tweet: ${tweetId})`);
+
+    // === OPTIMISTIC UI: Immediately update DOM ===
+
+    // 1. Update button to loading state first
+    buttonElement.classList.add('loading');
+    const btnText = buttonElement.querySelector('.xnote-btn-text');
+    if (btnText) {
+        btnText.textContent = '...';
+    }
+
+    // 2. Call X Block API directly from content script
+    const blockResult = await blockUserOnX(screenName);
+
+    if (blockResult.success) {
+        // Success: Update UI
+        buttonElement.classList.remove('loading');
+        buttonElement.classList.add('success');
+        if (btnText) {
+            btnText.textContent = t('btn_done');
+        }
+
+        // 3. Hide tweet content
+        const tweetContent = tweetElement.querySelector('[data-testid="tweetText"]');
+        const mediaContent = tweetElement.querySelectorAll('[data-testid="tweetPhoto"], [data-testid="videoPlayer"], [data-testid="videoComponent"]');
+
+        if (tweetContent) {
+            tweetContent.classList.add('xnote-content-hidden');
+        }
+        mediaContent.forEach(media => {
+            media.classList.add('xnote-content-hidden');
+        });
+
+        // 4. Insert blocked overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'xnote-blocked-overlay';
+        overlay.innerHTML = `<span>${t('status_blocked_reported')}</span>`;
+
+        const actionBar = tweetElement.querySelector(ACTION_BAR_SELECTOR);
+        if (actionBar && actionBar.parentNode) {
+            actionBar.parentNode.insertBefore(overlay, actionBar);
+        }
+
+        // 5. Hide the Sift Block button
+        buttonElement.style.display = 'none';
+
+        // 6. Mark tweet as folded
+        tweetElement.classList.add('xnote-tweet-folded');
+
+        // 7. Show toast notification
+        showToast(t('status_blocked_reported'));
+
+        // 8. Send to background for local blocklist + cloud report (fire and forget)
+        chrome.runtime.sendMessage({
+            type: MESSAGE_TYPES.BLOCK_USER_ACTION,
+            payload: {
+                screen_name: screenName,
+                tweet_id: tweetId,
+                reason: 'manual_click'
+            }
+        });
+
+        console.log('[XNote] Block action completed successfully');
+
+    } else {
+        // Failed: Show error state
+        buttonElement.classList.remove('loading');
+        buttonElement.classList.add('error');
+        if (btnText) {
+            btnText.textContent = t('btn_error');
+        }
+        showToast(`Block failed: ${blockResult.error}`);
+        console.error('[XNote] Block action failed:', blockResult.error);
+
+        // Reset button after 2 seconds
+        setTimeout(() => {
+            buttonElement.classList.remove('error');
+            if (btnText) {
+                btnText.textContent = t('btn_sift_block');
+            }
+        }, 2000);
+    }
+}
+
+/**
+ * Handle Sift Block button click.
+ */
+function handleSiftBlockClick(e, tweetElement, buttonElement) {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (buttonElement.classList.contains('loading') || buttonElement.classList.contains('success')) {
+        return;
+    }
+
+    handleSiftBlock(tweetElement, buttonElement);
+}
+
+/**
+ * Inject Sift Block button into tweet's action bar.
+ */
+function injectSiftBlockButton(tweetElement) {
+    const actionBar = tweetElement.querySelector(ACTION_BAR_SELECTOR);
+
+    if (!actionBar) {
+        return;
+    }
+
+    // Don't inject if already exists
+    if (actionBar.querySelector('.xnote-sift-block-btn')) {
+        return;
+    }
+
+    // Don't inject if tweet is already folded (user already in blocklist)
+    if (tweetElement.classList.contains('xnote-tweet-folded')) {
+        return;
+    }
+
+    const blockBtn = createSiftBlockButton();
+
+    blockBtn.addEventListener('click', (e) => {
+        handleSiftBlockClick(e, tweetElement, blockBtn);
+    });
+
+    blockBtn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+            e.preventDefault();
+            handleSiftBlockClick(e, tweetElement, blockBtn);
+        }
+    });
+
+    actionBar.appendChild(blockBtn);
+}
+
+/**
  * Handle media download button click.
  */
 function handleMediaDownloadClick(e, tweetElement, buttonElement) {
@@ -851,6 +1084,11 @@ function injectMediaDownloadButton(tweetElement) {
 
     // Skip injection if this is the main tweet on a detail page (Clean UI request)
     if (isDetailPage() && isMainTweet(tweetElement)) {
+        return;
+    }
+
+    // Don't inject if tweet is already folded (user in blocklist)
+    if (tweetElement.classList.contains('xnote-tweet-folded')) {
         return;
     }
 
@@ -907,11 +1145,136 @@ function injectCommentsDownloadButton(tweetElement) {
 }
 
 // ============================================================================
+// Community Blocklist Auto-Fold
+// ============================================================================
+
+/**
+ * Create the fold bar UI element.
+ * @param {HTMLElement} tweetElement - The tweet to attach unfold action to
+ * @returns {HTMLElement} The fold bar element
+ */
+function createFoldBar(tweetElement) {
+    const bar = document.createElement('div');
+    bar.className = 'xnote-fold-bar';
+
+    const textSpan = document.createElement('span');
+    textSpan.className = 'xnote-fold-text';
+    textSpan.textContent = t('fold_warning');
+
+    const showBtn = document.createElement('button');
+    showBtn.className = 'xnote-show-anyway-btn';
+    showBtn.textContent = t('btn_show_anyway');
+    showBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        unfoldTweet(tweetElement);
+    });
+
+    bar.appendChild(textSpan);
+    bar.appendChild(showBtn);
+    return bar;
+}
+
+/**
+ * Fold a tweet (hide content, show warning bar).
+ * @param {HTMLElement} tweetElement - The tweet to fold
+ */
+function foldTweet(tweetElement) {
+    // Already folded?
+    if (tweetElement.classList.contains('xnote-tweet-folded')) {
+        return;
+    }
+
+    // Find content elements to hide
+    const tweetText = tweetElement.querySelector('[data-testid="tweetText"]');
+    const mediaElements = tweetElement.querySelectorAll(
+        '[data-testid="tweetPhoto"], [data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="card.wrapper"]'
+    );
+
+    // Hide content
+    if (tweetText) {
+        tweetText.classList.add('xnote-content-hidden');
+    }
+    mediaElements.forEach(el => {
+        el.classList.add('xnote-content-hidden');
+    });
+
+    // Create and insert fold bar
+    const foldBar = createFoldBar(tweetElement);
+
+    // Insert after user info area, before content
+    const tweetInner = tweetText?.parentElement || tweetElement;
+    if (tweetText) {
+        tweetInner.insertBefore(foldBar, tweetText);
+    } else {
+        // Fallback: insert at beginning of content area
+        const actionBar = tweetElement.querySelector(ACTION_BAR_SELECTOR);
+        if (actionBar && actionBar.parentNode) {
+            actionBar.parentNode.insertBefore(foldBar, actionBar);
+        }
+    }
+
+    // Mark as folded
+    tweetElement.classList.add('xnote-tweet-folded');
+    console.log('[XNote] Folded tweet from blocked user');
+}
+
+/**
+ * Unfold a tweet (restore content, remove warning bar).
+ * @param {HTMLElement} tweetElement - The tweet to unfold
+ */
+function unfoldTweet(tweetElement) {
+    // Remove fold bar
+    const foldBar = tweetElement.querySelector('.xnote-fold-bar');
+    if (foldBar) {
+        foldBar.remove();
+    }
+
+    // Restore hidden content
+    const hiddenElements = tweetElement.querySelectorAll('.xnote-content-hidden');
+    hiddenElements.forEach(el => {
+        el.classList.remove('xnote-content-hidden');
+    });
+
+    // Remove folded marker
+    tweetElement.classList.remove('xnote-tweet-folded');
+    console.log('[XNote] Unfolded tweet');
+}
+
+/**
+ * Check if a tweet is from a blocked user and fold if necessary.
+ * @param {HTMLElement} tweetElement - The tweet to check
+ */
+function checkAndFoldTweet(tweetElement) {
+    // Skip if already folded
+    if (tweetElement.classList.contains('xnote-tweet-folded')) {
+        return;
+    }
+
+    // Skip if blocklist is empty
+    if (blockedUsersSet.size === 0) {
+        return;
+    }
+
+    // Extract username (screen_name)
+    const username = extractUsername(tweetElement);
+    if (!username || username === 'unknown') {
+        return;
+    }
+
+    // Check against blocklist (case-insensitive)
+    if (blockedUsersSet.has(username.toLowerCase())) {
+        console.log(`[XNote] Detected blocked user: @${username}`);
+        foldTweet(tweetElement);
+    }
+}
+
+// ============================================================================
 // Core Functions
 // ============================================================================
 
 /**
- * Process a tweet element - inject appropriate buttons.
+ * Process a tweet element - inject appropriate buttons and check blocklist.
  */
 function processTweet(tweet) {
     if (processedTweets.has(tweet)) {
@@ -919,8 +1282,14 @@ function processTweet(tweet) {
     }
     processedTweets.add(tweet);
 
+    // Check if tweet is from a blocked user and fold if necessary
+    checkAndFoldTweet(tweet);
+
     // Always inject media download button on all tweets
     injectMediaDownloadButton(tweet);
+
+    // Inject Sift Block button on all tweets
+    injectSiftBlockButton(tweet);
 }
 
 /**

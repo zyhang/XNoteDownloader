@@ -10,10 +10,262 @@
 const MESSAGE_TYPES = {
     DOWNLOAD_MEDIA: 'DOWNLOAD_MEDIA',
     RESOLVE_VIDEO_AND_DOWNLOAD: 'RESOLVE_VIDEO_AND_DOWNLOAD',
-    RESOLVE_VIDEO_URL_ONLY: 'RESOLVE_VIDEO_URL_ONLY'
+    RESOLVE_VIDEO_URL_ONLY: 'RESOLVE_VIDEO_URL_ONLY',
+    BLOCK_USER: 'BLOCK_USER',
+    BLOCK_USER_ACTION: 'BLOCK_USER_ACTION'
 };
 
 const SYNDICATION_API = 'https://cdn.syndication.twimg.com/tweet-result';
+
+// Cloud API Configuration (Sift Backend)
+const CLOUD_API_URL = 'https://sift-backend.onrender.com';
+const CLOUD_API_KEY = 'sift';
+
+// Storage Keys
+const STORAGE_KEY_LOCAL_BLOCKLIST = 'localBlocklist';
+
+// ============================================================================
+// Cloud API - Report User to Sift Community Blocklist
+// ============================================================================
+
+/**
+ * Report a user to the Sift cloud blocklist.
+ * This runs independently - failures here should NOT affect the X block action.
+ * @param {string} userId - The X user ID to report
+ * @param {string} reason - Reason for blocking (e.g., 'spam', 'harassment')
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function reportUserToCloud(userId, reason = 'blocked') {
+    const endpoint = `${CLOUD_API_URL}/report`;
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': CLOUD_API_KEY
+            },
+            body: JSON.stringify({
+                user_id: userId,
+                reason: reason
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[XNote BG] Cloud report failed: HTTP ${response.status} - ${errorText}`);
+            return { success: false, error: `HTTP ${response.status}` };
+        }
+
+        const data = await response.json();
+        console.log('[XNote BG] User reported to Sift cloud:', data);
+        return { success: true, data };
+
+    } catch (error) {
+        // Network errors or other issues - log but don't throw
+        console.error('[XNote BG] Cloud report error:', error.message);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================================================
+// X Internal Block API (Client Impersonation)
+// ============================================================================
+
+// X Web App Bearer Token (public, hardcoded in X's JS bundle)
+const X_BEARER_TOKEN = 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
+
+// X Block API Endpoint
+const X_BLOCK_API = 'https://twitter.com/i/api/1.1/blocks/create.json';
+
+/**
+ * Get authentication data (CSRF token + Cookie header) from X/Twitter cookies.
+ * Service Workers don't automatically send cookies, so we must manually include them.
+ * @returns {Promise<{csrfToken: string, cookieHeader: string}|null>}
+ */
+async function getAuthData() {
+    try {
+        // Try to get all cookies from both domains
+        let cookies = await chrome.cookies.getAll({ domain: '.twitter.com' });
+
+        // Also try x.com domain
+        const xCookies = await chrome.cookies.getAll({ domain: '.x.com' });
+
+        // Merge cookies (prefer twitter.com if duplicates)
+        const cookieMap = new Map();
+        for (const cookie of xCookies) {
+            cookieMap.set(cookie.name, cookie.value);
+        }
+        for (const cookie of cookies) {
+            cookieMap.set(cookie.name, cookie.value);
+        }
+
+        // Check for ct0 (CSRF token) - required
+        const csrfToken = cookieMap.get('ct0');
+        if (!csrfToken) {
+            console.error('[XNote BG] ct0 cookie not found - user may not be logged in');
+            return null;
+        }
+
+        // Check for auth_token - required for authenticated requests
+        const authToken = cookieMap.get('auth_token');
+        if (!authToken) {
+            console.error('[XNote BG] auth_token cookie not found - user may not be logged in');
+            return null;
+        }
+
+        // Build cookie header string from all cookies
+        const cookieHeader = Array.from(cookieMap.entries())
+            .map(([name, value]) => `${name}=${value}`)
+            .join('; ');
+
+        console.log('[XNote BG] Auth data obtained (ct0 + auth_token + cookies)');
+        return { csrfToken, cookieHeader };
+
+    } catch (error) {
+        console.error('[XNote BG] Failed to get auth data:', error.message);
+        return null;
+    }
+}
+
+/**
+ * Block a user using X's internal API.
+ * This mimics the web client's block request.
+ * @param {string} screenName - The @username to block (without @)
+ * @returns {Promise<{success: boolean, error?: string, needsRefresh?: boolean}>}
+ */
+async function blockUserOnX(screenName) {
+    const authData = await getAuthData();
+
+    if (!authData) {
+        return {
+            success: false,
+            error: 'Not logged in to X',
+            needsRefresh: true
+        };
+    }
+
+    const { csrfToken, cookieHeader } = authData;
+
+    try {
+        // Build form data (x-www-form-urlencoded)
+        const formData = new URLSearchParams();
+        formData.append('screen_name', screenName);
+
+        const response = await fetch(X_BLOCK_API, {
+            method: 'POST',
+            headers: {
+                'authorization': X_BEARER_TOKEN,
+                'x-csrf-token': csrfToken,
+                'x-twitter-auth-type': 'OAuth2Session',
+                'x-twitter-active-user': 'yes',
+                'x-twitter-client-language': 'en',
+                'content-type': 'application/x-www-form-urlencoded',
+                'Cookie': cookieHeader  // Manually include cookies
+            },
+            body: formData.toString()
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            console.log('[XNote BG] User blocked on X successfully:', screenName);
+            return { success: true, data };
+        }
+
+        // Handle auth errors
+        if (response.status === 401 || response.status === 403) {
+            const errorText = await response.text();
+            console.error(`[XNote BG] X Block API auth error: ${response.status}`, errorText);
+            return {
+                success: false,
+                error: `Auth error: ${response.status}`,
+                needsRefresh: true
+            };
+        }
+
+        // Other errors
+        const errorText = await response.text();
+        console.error(`[XNote BG] X Block API error: ${response.status} - ${errorText}`);
+        return { success: false, error: `HTTP ${response.status}` };
+
+    } catch (error) {
+        console.error('[XNote BG] X Block API request failed:', error.message);
+        return { success: false, error: error.message };
+    }
+}
+
+// ============================================================================
+// Community Blocklist Sync
+// ============================================================================
+
+const BLOCKLIST_SYNC_ALARM = 'XNOTE_BLOCKLIST_SYNC';
+const STORAGE_KEY_BLOCKLIST = 'communityBlocklist';
+const BLOCKLIST_SYNC_INTERVAL_MINUTES = 30;
+
+/**
+ * Fetch community blocklist from cloud API.
+ * Stores the result in chrome.storage.local for content script access.
+ * @returns {Promise<{success: boolean, count?: number, error?: string}>}
+ */
+async function fetchCloudBlocklist() {
+    const endpoint = `${CLOUD_API_URL}/blocklist`;
+
+    try {
+        console.log('[XNote BG] Fetching community blocklist...');
+
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            console.error(`[XNote BG] Blocklist fetch failed: HTTP ${response.status}`);
+            return { success: false, error: `HTTP ${response.status}` };
+        }
+
+        const data = await response.json();
+        const users = data.users || [];
+
+        // Store in chrome.storage.local for content script access
+        await chrome.storage.local.set({
+            [STORAGE_KEY_BLOCKLIST]: users,
+            blocklistLastUpdated: Date.now()
+        });
+
+        console.log(`[XNote BG] Fetched community blocklist: ${users.length} users`);
+        return { success: true, count: users.length };
+
+    } catch (error) {
+        // Network errors - log but don't throw, don't break other functionality
+        console.error('[XNote BG] Blocklist fetch error:', error.message);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Initialize blocklist sync: fetch immediately and set up recurring alarm.
+ */
+async function initBlocklistSync() {
+    // Fetch immediately
+    await fetchCloudBlocklist();
+
+    // Set up recurring alarm for periodic sync
+    chrome.alarms.create(BLOCKLIST_SYNC_ALARM, {
+        periodInMinutes: BLOCKLIST_SYNC_INTERVAL_MINUTES
+    });
+
+    console.log(`[XNote BG] Blocklist sync alarm set: every ${BLOCKLIST_SYNC_INTERVAL_MINUTES} minutes`);
+}
+
+// Listen for alarm triggers
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === BLOCKLIST_SYNC_ALARM) {
+        console.log('[XNote BG] Blocklist sync alarm triggered');
+        fetchCloudBlocklist();
+    }
+});
 
 // ============================================================================
 // Lifecycle Events
@@ -22,9 +274,19 @@ const SYNDICATION_API = 'https://cdn.syndication.twimg.com/tweet-result';
 chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
         console.log('[XNote BG] Extension installed successfully!');
+        // Initialize blocklist sync on fresh install
+        initBlocklistSync();
     } else if (details.reason === 'update') {
         console.log(`[XNote BG] Updated to version ${chrome.runtime.getManifest().version}`);
+        // Re-initialize sync on update
+        initBlocklistSync();
     }
+});
+
+// Also sync on browser startup (in case extension was already installed)
+chrome.runtime.onStartup.addListener(() => {
+    console.log('[XNote BG] Browser started, syncing blocklist...');
+    initBlocklistSync();
 });
 
 // ============================================================================
@@ -290,6 +552,106 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
 
         return true;
+    }
+
+    // Handle BLOCK_USER: Block on X + Report to Sift cloud (dual action)
+    if (type === MESSAGE_TYPES.BLOCK_USER) {
+        const { screenName, reason } = message;
+
+        if (!screenName) {
+            sendResponse({ success: false, error: 'No screen_name provided' });
+            return true;
+        }
+
+        console.log(`[XNote BG] Block user request: @${screenName}, reason: ${reason || 'manual_block'}`);
+
+        // Execute both actions in parallel
+        Promise.allSettled([
+            blockUserOnX(screenName),                           // Action A: X Internal API
+            reportUserToCloud(screenName, reason || 'manual_block')  // Action B: Cloud API
+        ]).then(([xResult, cloudResult]) => {
+            // Log cloud result (non-blocking)
+            if (cloudResult.status === 'fulfilled' && cloudResult.value.success) {
+                console.log('[XNote BG] Cloud report completed successfully');
+            } else {
+                const cloudError = cloudResult.status === 'rejected'
+                    ? cloudResult.reason
+                    : cloudResult.value?.error;
+                console.warn('[XNote BG] Cloud report failed (non-blocking):', cloudError);
+            }
+
+            // Determine success based on X API result only
+            if (xResult.status === 'fulfilled') {
+                const xData = xResult.value;
+
+                if (xData.success) {
+                    console.log('[XNote BG] Block action completed successfully');
+                    sendResponse({ success: true, message: 'User blocked successfully' });
+                } else if (xData.needsRefresh) {
+                    console.error('[XNote BG] Auth error - user needs to refresh');
+                    sendResponse({
+                        success: false,
+                        error: xData.error,
+                        needsRefresh: true
+                    });
+                } else {
+                    sendResponse({ success: false, error: xData.error });
+                }
+            } else {
+                // Promise rejected (network error etc)
+                console.error('[XNote BG] X Block request failed:', xResult.reason);
+                sendResponse({ success: false, error: xResult.reason?.message || 'Request failed' });
+            }
+        });
+
+        return true; // Keep message channel open for async response
+    }
+
+    // Handle BLOCK_USER_ACTION: Add to local blocklist + report to cloud
+    // Note: X Block API is now called directly from content.js (for proper cookie access)
+    if (type === MESSAGE_TYPES.BLOCK_USER_ACTION) {
+        const { screen_name, tweet_id, reason } = message.payload || message;
+
+        if (!screen_name) {
+            console.warn('[XNote BG] BLOCK_USER_ACTION: No screen_name provided');
+            return false;
+        }
+
+        console.log(`[XNote BG] Block action received: @${screen_name}, tweet: ${tweet_id}, reason: ${reason}`);
+
+        // Step 1: Add to local blocklist (triggers storage.onChanged for all tabs)
+        chrome.storage.local.get(STORAGE_KEY_LOCAL_BLOCKLIST, (result) => {
+            const currentList = result[STORAGE_KEY_LOCAL_BLOCKLIST] || [];
+            const lowerName = screen_name.toLowerCase();
+
+            // Avoid duplicates
+            if (!currentList.includes(lowerName)) {
+                currentList.push(lowerName);
+                chrome.storage.local.set({
+                    [STORAGE_KEY_LOCAL_BLOCKLIST]: currentList
+                }, () => {
+                    console.log(`[XNote BG] Added @${screen_name} to local blocklist (total: ${currentList.length})`);
+                });
+            } else {
+                console.log(`[XNote BG] @${screen_name} already in local blocklist`);
+            }
+        });
+
+        // Step 2: Report to cloud (fire and forget)
+        reportUserToCloud(screen_name, reason || 'manual_block')
+            .then((result) => {
+                if (result.success) {
+                    console.log('[XNote BG] Cloud report completed');
+                } else {
+                    console.warn('[XNote BG] Cloud report failed (non-blocking):', result.error);
+                }
+            })
+            .catch((error) => {
+                console.warn('[XNote BG] Cloud report error (non-blocking):', error);
+            });
+
+        // No response needed - fire and forget pattern
+        return false;
     }
 
     console.warn('[XNote BG] Unknown message type:', type);

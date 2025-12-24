@@ -8,11 +8,16 @@
         "activeTab",
         "downloads",
         "storage",
-        "scripting"
+        "scripting",
+        "alarms",
+        "cookies"
     ],
     "host_permissions": [
+        "https://*.x.com/*",
+        "https://*.twitter.com/*",
         "https://x.com/*",
-        "https://twitter.com/*"
+        "https://twitter.com/*",
+        "https://sift-backend.onrender.com/*"
     ],
     "background": {
         "service_worker": "background.js"
@@ -50,5 +55,16 @@
         "32": "icons/icon32.png",
         "48": "icons/icon48.png",
         "128": "icons/icon128.png"
-    }
+    },
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "inject.js"
+            ],
+            "matches": [
+                "https://x.com/*",
+                "https://twitter.com/*"
+            ]
+        }
+    ]
 }
