@@ -2,7 +2,7 @@
 
 ## 1. Core Philosophy (核心理念)
 XNote Downloader 是一款轻量级、零干扰的 Chrome 浏览器扩展。
-* **Mission:** 让用户以最少的点击次数（One-Click），保存 X (Twitter) 上的高质量媒体资源。
+* **Mission:** 让用户以最少的点击次数（One-Click），保存 X (Twitter) 上的高质量媒体资源，并保护用户免受社区黑名单用户的骚扰。
 * **Non-Intrusive:** UI 必须完美融入 X 的原生设计风格（Native Look & Feel），不要像个丑陋的补丁。
 * **Privacy First:** 不收集任何用户数据，不上传任何内容到第三方服务器。所有处理都在本地完成。
 
@@ -10,74 +10,94 @@ XNote Downloader 是一款轻量级、零干扰的 Chrome 浏览器扩展。
 * **Platform:** Chrome Extension (Manifest V3).
 * **Tech Stack:** Vanilla JavaScript (ES6+), HTML, CSS. (无庞大的前端框架，保持体积极小).
 * **Target Site:** `https://x.com/*` & `https://twitter.com/*`
+* **Backend API:** 云端黑名单 API（用于社区黑名单同步）
 
 ## 3. Key Features & Logic (核心功能逻辑)
 
 ### A. Media Detection (媒体嗅探)
-* **Challenge:** X 是一个高度动态的 React 单页应用 (SPA)。DOM 结构极深且类名也是动态混淆的 (e.g., `css-175oi2r`).
+* **Challenge:** X 是一个高度动态的 React 单页应用 (SPA)。DOM 结构极深且类名也是动态混淆的。
 * **Solution:**
     * 必须使用 `MutationObserver` 监听 DOM 变化，探测新的 Tweet 流加载。
     * **定位锚点:** 寻找 `<article data-testid="tweet">` 作为每一个推文的根节点。
-    * **Action Bar 注入:** 将下载按钮插入到推文底部的 Action Bar (评论、转发、点赞) 区域中，通常位于 `role="group"` 的元素内。
+    * **Sift Action Bar:** 将操作按钮整合为统一组件，注入到推文底部 Action Bar。
 
-### B. Image Downloading (图片下载)
-* **Source:** 查找推文内的 `<img>` 标签。
-* **Resolution:** 必须获取最高分辨率。
-    * 通常图片 URL 格式为 `.../name.jpg&name=small`。
-    * **Rule:** 必须将 URL 修正为 `.../name.jpg&name=orig` 以获取原始画质。
-* **Batch:** 如果推文包含多张图片，点击下载按钮应一次性触发所有图片的下载，或提供 ZIP 打包 (MVP阶段先直接触发多次下载).
+### B. Sift Action Bar (统一操作栏) - NEW
+* **设计原则:** 极简、原生感、无干扰
+* **按钮布局:**
+  * 列表页：⬇️ 打包下载 + 🚫 上报拉黑
+  * 详情页主推文：⬇️ 打包下载 + 🚫 上报拉黑 + 📊 评论抓取
+* **交互效果:**
+  * Hover：圆形蓝色背景蒙版（拉黑按钮为红色）
+  * Tooltip：悬停 0.5s 后显示在图标上方
+* **暗黑模式:** 自动适配 `prefers-color-scheme: dark`
 
-### C. Video Downloading (视频下载)
-* **Complexity:** X 的视频通常是 `blob:` 链接或 HLS 流 (`.m3u8`)，直接 `src` 可能无法下载。
-* **Strategy:**
-    * **Plan A (API Interception):** 尝试拦截网络请求或解析 React Props (寻找 `__reactProps` 或类似挂载数据) 来获取 `.mp4` 真实地址。
-    * **Plan B (External Service fallback):** 如果本地解析失败，允许通过配置调用第三方解析 API（但在 MVP 阶段尽量做纯本地）。
-    * *当前 MVP 策略:* 优先尝试在 DOM 中寻找 `<video>` 标签的 `src`，如果只有 blob，则需解析页面嵌入的 JSON 数据。
+### C. Zip Package Download (打包下载)
+* **功能:** 一键下载推文所有内容
+* **包含内容:**
+  * `text.txt` - 推文文本
+  * `img_{n}.jpg` - 所有图片（原始画质）
+  * `video.mp4` - 视频（如有）
+* **文件命名:** `Tweet_{username}_{tweetId}.zip`
 
-### D. File Naming (文件命名规范)
-* 自动重命名文件，防止文件名混乱。
-* **Format:** `xnote_{username}_{tweetId}_{index}.{ext}`
-* *Example:* `xnote_elonmusk_123456789_1.jpg`
+### D. Community Shield (社群盾牌) - NEW
+* **功能:** 社区驱动的黑名单屏蔽系统
+* **工作原理:**
+  * 定时从云端同步社区黑名单（每 15 分钟）
+  * 开启时自动折叠黑名单用户的推文
+  * 关闭后立即恢复所有被折叠推文
+* **Popup 控制:** iOS 风格开关，实时生效
+* **技术实现:** 
+  * 使用 `body.xnote-shield-on` class 控制可见性
+  * CSS-based 即时切换（无需 DOM 遍历）
 
+### E. Sift Block (上报拉黑) - NEW
+* **功能:** 将用户加入本地黑名单 + 上报云端 + 调用 X 内部 API 拉黑
+* **三重操作:**
+  1. 本地黑名单存储
+  2. 云端 API 上报（需 API Key）
+  3. X 内部 `blocks/create.json` API 拉黑
+* **技术实现:** 通过注入 main world 脚本解决 CORS 和 Cookie 问题
 
-## 4. UI/UX Specifications (交互规范)
-* **Icon:** 使用简单的 Feather Icon 风格（如下载箭头），颜色需适配 X 的当前主题（Light/Dim/Lights Out 模式自动适应 SVG `fill` 颜色）。
-* **Feedback:** 点击后必须有视觉反馈（Loading 状态 -> Success 对钩 / Error 红色感叹号）。
-* **Menu:** 点击扩展图标 (Popup) 仅提供简单的开关设置（如：“自动重命名”、“下载位置设置”）。
-
-## 5. Constraints & Rules (开发红线)
-1.  **禁止硬编码类名:** 尽量使用属性选择器 (e.g., `[data-testid="reply"]`) 而不是随机生成的 CSS 类名 (e.g., `.r-18jsvk2`)，因为 X 每周都会变类名。
-2.  **Manifest V3 兼容:** 所有的后台任务必须在 Service Worker 中处理，禁止使用阻塞型的 `webRequest` API，改用 `declarativeNetRequest` 或在 Content Script 处理逻辑。
-3.  **防抖 (Debounce):** `MutationObserver` 触发频率极高，必须对注入逻辑做 Debounce 处理，防止页面卡顿。
-
-## 6. Current Roadmap (当前迭代)
-* **Phase 1 (MVP):** ✅ 实现图片下载功能（自动替换为 `orig` 画质），按钮成功注入 Action Bar。
-* **Phase 2:** ✅ 攻克视频下载（通过 Syndication API 解析 MP4 地址）。
-* **Phase 3:** 增加 ZIP 打包下载功能。（待实现）
-* **Phase 4:** ✅ 评论抓取导出功能（Download Reviews to CSV）。
-
-## 7. Implemented Features (已实现功能)
-
-### A. Media Download (媒体下载)
-* 图片下载：自动获取原始画质 (`&name=orig`)
-* 视频下载：通过 Twitter Syndication API 解析 MP4 地址
-* 文件命名：`xnote_{username}_{tweetId}_{index}.{ext}`
-* 下载按钮注入到每条推文的 Action Bar
-
-### B. Download Reviews (评论抓取) - NEW
-* **入口限制：** 仅在推文详情页 (`/status/xxx`) 显示 "download reviews" 按钮
-* **按钮位置：** 主推文的 Action Bar（点赞、转发那一排）
-* **抓取逻辑：**
-  * 自动向下滚动页面，模拟用户浏览
-  * 随机等待 1.5-2.5 秒（防止被检测）
+### F. Download Reviews (评论抓取)
+* **入口:** 仅在推文详情页主推文显示
+* **抓取逻辑:**
+  * 自动向下滚动页面
+  * 随机等待 1.5-2.5 秒
   * 抓取上限：100 条评论
-  * 终止条件：达到上限 OR 连续 3 次滚动无新数据
-* **导出格式：** CSV 文件
+* **导出格式:** CSV 文件
   * 列：`Username, Date, Text, Likes, Replies_Count, Views`
   * 文件名：`comments_{tweetId}.csv`
-* **用户反馈：** 右下角浮动进度条显示抓取进度
 
-### C. SPA Navigation Support (单页应用支持)
-* URL 轮询监听（每 500ms 检测）
-* 支持前进/后退导航
-* 自动检测页面类型（首页 vs 详情页）
+## 4. UI/UX Specifications (交互规范)
+* **Icon:** SVG 图标，18.75px，线条风格与 Twitter 一致
+* **Feedback:** Toast 通知 + 按钮状态变化（loading/success/error）
+* **Popup:** 极简设计，250px 宽度，仅一个 Community Shield 开关
+
+## 5. Constraints & Rules (开发红线)
+1. **禁止硬编码类名:** 使用属性选择器 (e.g., `[data-testid="reply"]`)
+2. **Manifest V3 兼容:** Service Worker + `declarativeNetRequest`
+3. **防抖 (Debounce):** `MutationObserver` 必须做 Debounce 处理
+4. **Main World 注入:** X Block API 必须在页面主世界执行（解决 CORS）
+
+## 6. Current Roadmap (当前迭代)
+* **Phase 1 (MVP):** ✅ 图片下载功能
+* **Phase 2:** ✅ 视频下载（Syndication API）
+* **Phase 3:** ✅ ZIP 打包下载
+* **Phase 4:** ✅ 评论抓取导出（CSV）
+* **Phase 5:** ✅ Community Shield（社区黑名单屏蔽）
+* **Phase 6:** ✅ Sift Block（上报拉黑 + X API 拉黑）
+* **Phase 7:** ✅ Sift Action Bar UI 重构（原生风格图标按钮）
+* **Phase 8:** 🔲 多语言支持优化
+
+## 7. File Structure (文件结构)
+```
+XNoteDownloader/
+├── manifest.json      # 扩展配置
+├── background.js      # Service Worker（API 调用、下载、黑名单同步）
+├── content.js         # 内容脚本（DOM 操作、按钮注入）
+├── inject.js          # Main World 脚本（X Block API）
+├── styles.css         # 样式（Sift Action Bar、弹窗、Toast）
+├── popup.html/js      # 扩展弹窗（Community Shield 开关）
+├── i18n.js            # 国际化翻译
+└── icons/             # 扩展图标
+```
