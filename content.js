@@ -31,6 +31,14 @@ const ACTION_BAR_SELECTOR = '[role="group"]';
 const VIDEO_SELECTOR = 'video, [data-testid="videoComponent"]';
 const DEBOUNCE_DELAY = 500;
 
+// Quote Tweet detection selectors
+// Quote tweets are typically a div[role="link"] nested inside the main tweet
+const QUOTE_TWEET_SELECTORS = [
+    '[data-testid="quoteTweet"]',
+    'article[data-testid="tweet"] > div > div > div > div[role="link"][aria-labelledby]',
+    'div[role="link"]:has([data-testid="tweetText"])'
+];
+
 // Comment scraping constants
 const COMMENT_SCRAPE_LIMIT = 100;
 const SCROLL_WAIT_MIN = 1500;
@@ -104,28 +112,45 @@ let blockedUsersSet = new Set();
 // Community Shield toggle state (default: true = enabled)
 let enableBlocklist = true;
 
+// Content filter settings (loaded from filterRules.js)
+let filterSettings = null;
+
 /**
  * Initialize blocklist and settings from chrome.storage.local.
+ * @returns {Promise<void>}
  */
-function initBlocklistFromStorage() {
-    chrome.storage.local.get(['communityBlocklist', 'localBlocklist', 'enableBlocklist'], (result) => {
-        const communityUsers = result.communityBlocklist || [];
-        const localUsers = result.localBlocklist || [];
+async function initBlocklistFromStorage() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['communityBlocklist', 'localBlocklist', 'enableBlocklist'], (result) => {
+            const communityUsers = result.communityBlocklist || [];
+            const localUsers = result.localBlocklist || [];
 
-        // Merge both lists into one Set (lowercase for case-insensitive matching)
-        blockedUsersSet = new Set([
-            ...communityUsers.map(u => u.toLowerCase()),
-            ...localUsers.map(u => u.toLowerCase())
-        ]);
+            // Merge both lists into one Set (lowercase for case-insensitive matching)
+            blockedUsersSet = new Set([
+                ...communityUsers.map(u => u.toLowerCase()),
+                ...localUsers.map(u => u.toLowerCase())
+            ]);
 
-        // Load toggle state (default: true if not set)
-        enableBlocklist = result.enableBlocklist !== false;
+            // Load toggle state (default: true if not set)
+            enableBlocklist = result.enableBlocklist !== false;
 
-        // Set initial body class for CSS-based visibility control
-        updateShieldBodyClass(enableBlocklist);
+            // Set initial body class for CSS-based visibility control
+            updateShieldBodyClass(enableBlocklist);
 
-        console.log(`[XNote] Loaded blocklist: ${communityUsers.length} community + ${localUsers.length} local = ${blockedUsersSet.size} total`);
-        console.log(`[XNote] Community Shield: ${enableBlocklist ? 'ON' : 'OFF'}`);
+            console.log(`[XNote] Loaded blocklist: ${communityUsers.length} community + ${localUsers.length} local = ${blockedUsersSet.size} total`);
+            console.log(`[XNote] Community Shield: ${enableBlocklist ? 'ON' : 'OFF'}`);
+
+            // Load content filter settings
+            if (typeof XNoteFilter !== 'undefined') {
+                XNoteFilter.loadFilterSettings().then(settings => {
+                    filterSettings = settings;
+                    console.log(`[XNote] Content Filter: ${settings.enabled ? 'ON' : 'OFF'}, ${settings.rules.length} rules`);
+                    resolve();
+                });
+            } else {
+                resolve();
+            }
+        });
     });
 }
 
@@ -198,10 +223,22 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
             }
         });
     }
+
+    // Handle content filter settings changes
+    if (changes.filterSettings && typeof XNoteFilter !== 'undefined') {
+        XNoteFilter.loadFilterSettings().then(settings => {
+            filterSettings = settings;
+            console.log(`[XNote] Content Filter updated: ${settings.enabled ? 'ON' : 'OFF'}, ${settings.rules.length} rules`);
+
+            // Rescan tweets with new rules
+            if (settings.enabled) {
+                debouncedScan();
+            }
+        });
+    }
 });
 
-// Initialize blocklist on script load
-initBlocklistFromStorage();
+// Note: initBlocklistFromStorage is now called in init() to ensure proper async ordering
 
 // ============================================================================
 // Progress Overlay
@@ -634,6 +671,152 @@ function findMediaImages(tweetElement) {
     }
 
     return mediaImages;
+}
+
+// ============================================================================
+// Quote Tweet Detection & Scoped Media Extraction
+// ============================================================================
+
+/**
+ * Detect if a tweet contains a quoted tweet.
+ * @param {HTMLElement} tweetElement - The main tweet element
+ * @returns {HTMLElement|null} The quote tweet container or null
+ */
+function detectQuoteTweet(tweetElement) {
+    // Try each selector in order of specificity
+    for (const selector of QUOTE_TWEET_SELECTORS) {
+        try {
+            const quoteContainer = tweetElement.querySelector(selector);
+            if (quoteContainer) {
+                // Validate: quote container should have its own text or media
+                const hasText = quoteContainer.querySelector('[data-testid="tweetText"]');
+                const hasMedia = quoteContainer.querySelector('img[src*="pbs.twimg.com/media"]');
+                const hasVideo = quoteContainer.querySelector(VIDEO_SELECTOR);
+
+                if (hasText || hasMedia || hasVideo) {
+                    console.log('[XNote] Quote tweet detected via selector:', selector);
+                    return quoteContainer;
+                }
+            }
+        } catch (e) {
+            // Selector might not be supported, continue to next
+            continue;
+        }
+    }
+    return null;
+}
+
+/**
+ * Extract username from a quote tweet container.
+ * @param {HTMLElement} quoteContainer - The quote tweet container element
+ * @returns {{ username: string, displayName: string }}
+ */
+function extractQuotedTweetUser(quoteContainer) {
+    const result = { username: 'unknown', displayName: '' };
+
+    // Look for user links in the quote container
+    const userLinks = quoteContainer.querySelectorAll('a[href^="/"]');
+    for (const link of userLinks) {
+        const href = link.getAttribute('href');
+        if (href && /^\/[a-zA-Z0-9_]+$/.test(href)) {
+            result.username = href.slice(1);
+            // Try to get display name from link text
+            const textContent = link.textContent?.trim();
+            if (textContent && !textContent.startsWith('@')) {
+                result.displayName = textContent;
+            }
+            break;
+        }
+    }
+
+    // Fallback: look for @username pattern in text
+    if (result.username === 'unknown') {
+        const allText = quoteContainer.textContent || '';
+        const usernameMatch = allText.match(/@([a-zA-Z0-9_]+)/);
+        if (usernameMatch) {
+            result.username = usernameMatch[1];
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Find media images with strict scoping (for main tweet, excludes quote container).
+ * @param {HTMLElement} scopeElement - Element to search within
+ * @param {HTMLElement|null} excludeElement - Element to exclude from search
+ * @returns {HTMLImageElement[]} Array of media image elements
+ */
+function findMediaImagesInScope(scopeElement, excludeElement = null) {
+    const allImages = scopeElement.querySelectorAll('img');
+    const mediaImages = [];
+
+    for (const img of allImages) {
+        const src = img.src || '';
+
+        // Must be a media image
+        if (!src.includes('pbs.twimg.com/media')) {
+            continue;
+        }
+
+        // Skip tiny images (avatars, emojis)
+        if (img.width > 0 && img.width < 100) {
+            continue;
+        }
+
+        // CRITICAL: Exclude images inside the excludeElement (quote container)
+        if (excludeElement && excludeElement.contains(img)) {
+            continue;
+        }
+
+        mediaImages.push(img);
+    }
+
+    return mediaImages;
+}
+
+/**
+ * Check if an element contains video, with optional exclusion.
+ * @param {HTMLElement} scopeElement - Element to search within
+ * @param {HTMLElement|null} excludeElement - Element to exclude from search
+ * @returns {boolean}
+ */
+function hasVideoInScope(scopeElement, excludeElement = null) {
+    const videos = scopeElement.querySelectorAll(VIDEO_SELECTOR);
+
+    for (const video of videos) {
+        // If no exclusion, any video counts
+        if (!excludeElement) {
+            return true;
+        }
+        // Only count if NOT inside the excluded element
+        if (!excludeElement.contains(video)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Extract text content from tweet, with optional exclusion of quote container.
+ * @param {HTMLElement} tweetElement - The tweet element
+ * @param {HTMLElement|null} excludeElement - Element to exclude (quote container)
+ * @returns {string} The tweet text
+ */
+function extractTweetText(tweetElement, excludeElement = null) {
+    const textElements = tweetElement.querySelectorAll('[data-testid="tweetText"]');
+
+    for (const textEl of textElements) {
+        // If we have an exclusion element and this text is inside it, skip
+        if (excludeElement && excludeElement.contains(textEl)) {
+            continue;
+        }
+        // Return the first text that's not in the excluded zone
+        return textEl.innerText || '';
+    }
+
+    return '';
 }
 
 /**
@@ -1538,6 +1721,174 @@ function unfoldTweet(tweetElement) {
     console.log('[XNote] Unfolded tweet');
 }
 
+// ============================================================================
+// Rule-Based Content Folding
+// ============================================================================
+
+/**
+ * Fold a tweet based on content filter rule.
+ * @param {HTMLElement} tweetElement - The tweet to fold
+ * @param {Object} rule - The matched rule
+ */
+function foldTweetByRule(tweetElement, rule) {
+    // Already folded by rule? (check both class and existing banner)
+    if (tweetElement.classList.contains('xnote-rule-folded')) {
+        return;
+    }
+
+    // Check if banner already exists (in case class was lost due to re-render)
+    if (tweetElement.querySelector('.xnote-rule-fold-banner')) {
+        tweetElement.classList.add('xnote-rule-folded');
+        return;
+    }
+
+    // Mark as folded by rule
+    tweetElement.classList.add('xnote-rule-folded');
+
+    // Hide content elements (same approach as blocklist folding)
+    const tweetText = tweetElement.querySelector('[data-testid="tweetText"]');
+
+    // Extended media selectors to cover all types
+    const mediaSelectors = [
+        '[data-testid="tweetPhoto"]',
+        '[data-testid="videoPlayer"]',
+        '[data-testid="videoComponent"]',
+        '[data-testid="card.wrapper"]',
+        '[data-testid="card.layoutLarge.media"]',
+        '[data-testid="card.layoutSmall.media"]',
+        '[aria-label*="Image"]',
+        '[aria-label*="Video"]',
+        '[aria-label*="GIF"]',
+        'div[data-testid="tweet"] > div > div > div > div:has(img)',  // Image container
+        'div[role="link"]:has([data-testid="tweetPhoto"])'  // Link wrapper
+    ].join(', ');
+
+    const mediaElements = tweetElement.querySelectorAll(mediaSelectors);
+
+    if (tweetText) {
+        tweetText.classList.add('xnote-rule-hidden');
+    }
+
+    mediaElements.forEach(el => {
+        el.classList.add('xnote-rule-hidden');
+        // Also hide parent if it's a small wrapper
+        if (el.parentElement && el.parentElement.children.length === 1) {
+            el.parentElement.classList.add('xnote-rule-hidden');
+        }
+    });
+
+    // Create rule fold banner
+    const banner = document.createElement('div');
+    banner.className = 'xnote-rule-fold-banner';
+    banner.innerHTML = `
+        <div class="xnote-rule-fold-info">
+            <div class="xnote-rule-fold-title">🔇 内容已折叠</div>
+            <div class="xnote-rule-fold-reason">规则: ${rule.name || rule.pattern}</div>
+        </div>
+        <div class="xnote-rule-fold-actions">
+            <button class="xnote-rule-action-btn xnote-view-once-btn">查看一次</button>
+            <button class="xnote-rule-action-btn xnote-always-allow-btn">始终允许</button>
+        </div>
+    `;
+
+    // View Once button
+    banner.querySelector('.xnote-view-once-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        unfoldRuleTweet(tweetElement);
+    });
+
+    // Always Allow button - add author to whitelist
+    banner.querySelector('.xnote-always-allow-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        addToFilterWhitelist(tweetElement);
+        unfoldRuleTweet(tweetElement);
+    });
+
+    // Insert banner after user info, before content
+    const contentArea = tweetText?.parentElement || tweetElement;
+    if (tweetText) {
+        contentArea.insertBefore(banner, tweetText);
+    } else {
+        // Fallback: insert before action bar
+        const actionBar = tweetElement.querySelector(ACTION_BAR_SELECTOR);
+        if (actionBar && actionBar.parentNode) {
+            actionBar.parentNode.insertBefore(banner, actionBar);
+        }
+    }
+
+    console.log(`[XNote] Folded tweet by rule: ${rule.name || rule.pattern}`);
+}
+
+/**
+ * Unfold a rule-folded tweet.
+ * @param {HTMLElement} tweetElement - The tweet to unfold
+ */
+function unfoldRuleTweet(tweetElement) {
+    // Remove banner
+    const banner = tweetElement.querySelector('.xnote-rule-fold-banner');
+    if (banner) {
+        banner.remove();
+    }
+
+    // Restore hidden content
+    const hiddenElements = tweetElement.querySelectorAll('.xnote-rule-hidden');
+    hiddenElements.forEach(el => {
+        el.classList.remove('xnote-rule-hidden');
+    });
+
+    // Remove folded marker
+    tweetElement.classList.remove('xnote-rule-folded');
+    console.log('[XNote] Unfolded rule-folded tweet');
+}
+
+/**
+ * Add tweet author to content filter whitelist.
+ * @param {HTMLElement} tweetElement - The tweet element
+ */
+async function addToFilterWhitelist(tweetElement) {
+    if (typeof XNoteFilter === 'undefined' || !filterSettings) return;
+
+    const username = extractUsername(tweetElement)?.toLowerCase();
+    if (!username || username === 'unknown') return;
+
+    // Add to whitelist if not already present
+    if (!filterSettings.whitelistUsers.includes(username)) {
+        filterSettings.whitelistUsers.push(username);
+        await XNoteFilter.saveFilterSettings(filterSettings);
+        showToast(`@${username} 已添加到白名单`);
+        console.log(`[XNote] Added @${username} to filter whitelist`);
+    }
+}
+
+/**
+ * Check a tweet against content filter rules.
+ * @param {HTMLElement} tweetElement - The tweet to check
+ */
+function checkAndFoldByRules(tweetElement) {
+    // Skip if filter not loaded or disabled
+    if (!filterSettings || !filterSettings.enabled) return;
+    if (typeof XNoteFilter === 'undefined') return;
+
+    // Skip if already folded
+    if (tweetElement.classList.contains('xnote-rule-folded')) return;
+
+    // Check whitelist first (priority)
+    if (XNoteFilter.isWhitelisted(tweetElement, filterSettings)) return;
+
+    // Check scope (retweets only, for you only, etc.)
+    if (!XNoteFilter.shouldProcessTweet(tweetElement, filterSettings)) return;
+
+    // Extract text for matching
+    const text = XNoteFilter.extractTweetTextForMatching(tweetElement);
+    if (!text) return;
+
+    // Check against rules
+    const matchedRule = XNoteFilter.matchesRules(text, filterSettings.rules);
+    if (matchedRule) {
+        foldTweetByRule(tweetElement, matchedRule);
+    }
+}
+
 /**
  * Check if a tweet is from a blocked user and fold if necessary.
  * @param {HTMLElement} tweetElement - The tweet to check
@@ -1576,7 +1927,7 @@ function checkAndFoldTweet(tweetElement) {
 // ============================================================================
 
 /**
- * Process a tweet element - inject Sift Action Bar and check blocklist.
+ * Process a tweet element - inject Sift Action Bar and check filters.
  */
 function processTweet(tweet) {
     if (processedTweets.has(tweet)) {
@@ -1586,6 +1937,9 @@ function processTweet(tweet) {
 
     // Check if tweet is from a blocked user and fold if necessary
     checkAndFoldTweet(tweet);
+
+    // Check against content filter rules
+    checkAndFoldByRules(tweet);
 
     // Inject unified Sift Action Bar (replaces multiple button injections)
     injectSiftActionBar(tweet);
@@ -1665,6 +2019,7 @@ function injectAdvancedArea(tweetElement) {
 
 /**
  * Handle "Download Zip" Action.
+ * Supports quote tweet media extraction with hierarchical folder structure.
  */
 async function handleBoxDownload(tweetElement, button = null) {
     // Handle loading state
@@ -1681,32 +2036,47 @@ async function handleBoxDownload(tweetElement, button = null) {
         const tweetId = extractTweetId(tweetElement);
         const zip = new JSZip();
 
-        // 1. Text
-        const textElement = tweetElement.querySelector('[data-testid="tweetText"]');
-        const text = textElement ? textElement.innerText : '';
-        zip.file("text.txt", text);
+        // Load includeQuote setting from storage
+        let includeQuote = true;
+        try {
+            const settings = await chrome.storage.local.get({ includeQuoteTweet: true });
+            includeQuote = settings.includeQuoteTweet;
+        } catch (e) {
+            console.warn('[XNote] Failed to load quote setting, defaulting to true');
+        }
 
-        // 2. Images
-        const images = findMediaImages(tweetElement);
-        for (let i = 0; i < images.length; i++) {
-            const url = getOriginalQualityUrl(images[i].src);
+        // Detect quote tweet container (if any)
+        const quoteContainer = includeQuote ? detectQuoteTweet(tweetElement) : null;
+        const hasQuote = quoteContainer !== null;
+
+        console.log(`[XNote] ZIP Download - hasQuote: ${hasQuote}, includeQuote setting: ${includeQuote}`);
+
+        // Create main/ folder for main tweet content
+        const mainFolder = zip.folder('main');
+
+        // === MAIN TWEET EXTRACTION ===
+        // 1. Main Tweet Text (excluding quote container)
+        const mainText = extractTweetText(tweetElement, quoteContainer);
+        mainFolder.file('text.txt', mainText);
+
+        // 2. Main Tweet Images (excluding quote container)
+        const mainImages = findMediaImagesInScope(tweetElement, quoteContainer);
+        for (let i = 0; i < mainImages.length; i++) {
+            const url = getOriginalQualityUrl(mainImages[i].src);
             try {
-                // Use background script to fetch blob to avoid CORS issues if any,
-                // but usually content script can fetch if host permissions are set.
-                // However, X images are CDN. Let's try fetch directly.
                 const imgBlob = await fetch(url).then(r => r.blob());
                 const ext = getExtension(url);
-                zip.file(`img_${i + 1}.${ext}`, imgBlob);
+                mainFolder.file(`img_${i + 1}.${ext}`, imgBlob);
             } catch (e) {
-                console.error('Image fetch failed', e);
+                console.error('[XNote] Main image fetch failed:', e);
             }
         }
 
-        // 3. Video (if any)
-        if (hasVideo(tweetElement)) {
+        // 3. Main Tweet Video (if any, excluding quote container)
+        if (hasVideoInScope(tweetElement, quoteContainer)) {
             let videoUrl = null;
 
-            // Method 1: Try Syndication API via background script
+            // Try Syndication API via background script
             try {
                 const response = await chrome.runtime.sendMessage({
                     type: MESSAGE_TYPES.RESOLVE_VIDEO_URL_ONLY,
@@ -1719,7 +2089,7 @@ async function handleBoxDownload(tweetElement, button = null) {
                 console.error('[XNote] Syndication API error:', e);
             }
 
-            // Method 2: Try React props extraction (fallback)
+            // Fallback to React props extraction
             if (!videoUrl) {
                 videoUrl = await requestVideoUrlFromReact();
             }
@@ -1728,21 +2098,94 @@ async function handleBoxDownload(tweetElement, button = null) {
             if (videoUrl) {
                 try {
                     const vidBlob = await fetch(videoUrl).then(r => r.blob());
-                    zip.file("video.mp4", vidBlob);
+                    mainFolder.file('video.mp4', vidBlob);
                 } catch (e) {
-                    console.error('[XNote] Video fetch failed:', e);
+                    console.error('[XNote] Main video fetch failed:', e);
+                }
+            }
+        }
+
+        // === QUOTE TWEET EXTRACTION (if exists) ===
+        if (hasQuote && quoteContainer) {
+            const quoteUser = extractQuotedTweetUser(quoteContainer);
+            const quoteFolder = zip.folder('quote');
+            const quotePrefix = `@${quoteUser.username}_`;
+
+            console.log(`[XNote] Extracting quote tweet from @${quoteUser.username}`);
+
+            // 1. Quote Tweet Text
+            const quoteTextEl = quoteContainer.querySelector('[data-testid="tweetText"]');
+            const quoteText = quoteTextEl ? quoteTextEl.innerText : '';
+            quoteFolder.file(`${quotePrefix}text.txt`, quoteText);
+
+            // 2. Quote Tweet Images
+            const quoteImages = quoteContainer.querySelectorAll('img[src*="pbs.twimg.com/media"]');
+            let quoteImgIndex = 0;
+            for (const img of quoteImages) {
+                // Skip tiny images
+                if (img.width > 0 && img.width < 100) continue;
+
+                const url = getOriginalQualityUrl(img.src);
+                try {
+                    const imgBlob = await fetch(url).then(r => r.blob());
+                    const ext = getExtension(url);
+                    quoteImgIndex++;
+                    quoteFolder.file(`${quotePrefix}img_${quoteImgIndex}.${ext}`, imgBlob);
+                } catch (e) {
+                    console.error('[XNote] Quote image fetch failed:', e);
+                }
+            }
+
+            // 3. Quote Tweet Video (if any)
+            const quoteHasVideo = quoteContainer.querySelector(VIDEO_SELECTOR) !== null;
+            if (quoteHasVideo) {
+                // Note: For quote tweet videos, we need the quoted tweet's ID
+                // We'll try to extract it from the quote container's links
+                let quoteTweetId = null;
+                const quoteLinks = quoteContainer.querySelectorAll('a[href*="/status/"]');
+                for (const link of quoteLinks) {
+                    const href = link.getAttribute('href');
+                    const match = href && href.match(/\/status\/(\d+)/);
+                    if (match) {
+                        quoteTweetId = match[1];
+                        break;
+                    }
+                }
+
+                if (quoteTweetId && quoteTweetId !== tweetId) {
+                    let quoteVideoUrl = null;
+                    try {
+                        const response = await chrome.runtime.sendMessage({
+                            type: MESSAGE_TYPES.RESOLVE_VIDEO_URL_ONLY,
+                            tweetId: quoteTweetId
+                        });
+                        if (response && response.success && response.url) {
+                            quoteVideoUrl = response.url;
+                        }
+                    } catch (e) {
+                        console.error('[XNote] Quote video resolution error:', e);
+                    }
+
+                    if (quoteVideoUrl) {
+                        try {
+                            const vidBlob = await fetch(quoteVideoUrl).then(r => r.blob());
+                            quoteFolder.file(`${quotePrefix}video.mp4`, vidBlob);
+                        } catch (e) {
+                            console.error('[XNote] Quote video fetch failed:', e);
+                        }
+                    }
                 }
             }
         }
 
         // Generate Zip
-        const content = await zip.generateAsync({ type: "blob" });
+        const content = await zip.generateAsync({ type: 'blob' });
         const zipUrl = URL.createObjectURL(content);
 
         // Trigger Download
-        const link = document.createElement("a");
+        const link = document.createElement('a');
         link.href = zipUrl;
-        link.download = `Tweet_${username}_${tweetId}.zip`;
+        link.download = `Tweet_@${username}_${tweetId}.zip`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -1884,9 +2327,16 @@ async function startModalScraping(dataArray, idSet, tableBody) {
  */
 function scanForTweets() {
     const tweets = document.querySelectorAll(TWEET_SELECTOR);
+
     tweets.forEach(tweet => {
+        // Process new tweets (buttons, blocklist check)
         processTweet(tweet);
         processMainTweet(tweet);
+
+        // Re-check rules on ALL tweets (content may have loaded after initial process)
+        if (!tweet.classList.contains('xnote-rule-folded')) {
+            checkAndFoldByRules(tweet);
+        }
     });
 }
 
@@ -2075,8 +2525,13 @@ function injectFloatingButton() {
 // Initialization
 // ============================================================================
 
-function init() {
+async function init() {
     console.log('[XNote] Initializing...');
+
+    // Wait for settings to load (including filter rules)
+    await initBlocklistFromStorage();
+
+    // Now scan tweets (filter settings are ready)
     scanForTweets();
     initObserver();
     startUrlWatcher();

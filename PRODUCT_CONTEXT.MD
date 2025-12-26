@@ -32,12 +32,17 @@ XNote Downloader 是一款轻量级、零干扰的 Chrome 浏览器扩展。
 * **暗黑模式:** 自动适配 `prefers-color-scheme: dark`
 
 ### C. Zip Package Download (打包下载)
-* **功能:** 一键下载推文所有内容
+* **功能:** 一键下载推文所有内容（含引用推文）
 * **包含内容:**
-  * `text.txt` - 推文文本
-  * `img_{n}.jpg` - 所有图片（原始画质）
-  * `video.mp4` - 视频（如有）
-* **文件命名:** `Tweet_{username}_{tweetId}.zip`
+  * `main/text.txt` - 主推文文本
+  * `main/img_{n}.jpg` - 主推文图片（原始画质）
+  * `main/video.mp4` - 主推文视频（如有）
+  * `quote/@{user}_text.txt` - 引用推文文本（如有）
+  * `quote/@{user}_img_{n}.jpg` - 引用推文图片（如有）
+  * `quote/@{user}_video.mp4` - 引用推文视频（如有）
+* **文件命名:** `Tweet_@{username}_{tweetId}.zip`
+* **防止媒体污染:** 使用 DOM Scoping 策略，确保主推与引用推的媒体严格分离
+* **设置控制:** Popup 中可关闭引用推文下载
 
 ### D. Community Shield (社群盾牌) - NEW
 * **功能:** 社区驱动的黑名单屏蔽系统
@@ -71,7 +76,11 @@ XNote Downloader 是一款轻量级、零干扰的 Chrome 浏览器扩展。
 ## 4. UI/UX Specifications (交互规范)
 * **Icon:** SVG 图标，18.75px，线条风格与 Twitter 一致
 * **Feedback:** Toast 通知 + 按钮状态变化（loading/success/error）
-* **Popup:** 极简设计，250px 宽度，仅一个 Community Shield 开关
+* **Popup:**
+  * 极简设计，320px 宽度
+  * 🛡️ Community Shield 开关
+  * 📦 Download Options（包含引用推文开关）
+  * 🔇 Content Filter（关键词过滤规则）
 
 ## 5. Constraints & Rules (开发红线)
 1. **禁止硬编码类名:** 使用属性选择器 (e.g., `[data-testid="reply"]`)
@@ -87,7 +96,8 @@ XNote Downloader 是一款轻量级、零干扰的 Chrome 浏览器扩展。
 * **Phase 5:** ✅ Community Shield（社区黑名单屏蔽）
 * **Phase 6:** ✅ Sift Block（上报拉黑 + X API 拉黑）
 * **Phase 7:** ✅ Sift Action Bar UI 重构（原生风格图标按钮）
-* **Phase 8:** 🔲 多语言支持优化
+* **Phase 8:** ✅ Quote Tweet 媒体提取（分层 ZIP 结构）
+* **Phase 9:** 🔲 多语言支持优化
 
 ## 7. File Structure (文件结构)
 ```

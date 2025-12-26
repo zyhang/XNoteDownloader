@@ -372,6 +372,136 @@ body.xnote-shield-on .xnote-blocked-overlay {
   position: relative;
 }
 
+/* ============================================================================
+   Rule-Based Content Fold UI
+   ============================================================================ */
+/* Tweet folded by content filter rule - add red border */
+.xnote-rule-folded {
+  position: relative;
+  border-left: 3px solid rgb(244, 33, 46) !important;
+  padding-left: 8px;
+}
+
+/* Hide ALL content in rule-folded tweets except banner and user info/actions */
+.xnote-rule-folded [data-testid="tweetText"],
+.xnote-rule-folded [data-testid="tweetPhoto"],
+.xnote-rule-folded [data-testid="videoPlayer"],
+.xnote-rule-folded [data-testid="videoComponent"],
+.xnote-rule-folded [data-testid="card.wrapper"],
+.xnote-rule-folded [data-testid="quoteTweet"] {
+  display: none !important;
+}
+
+/* Hide all images and videos aggressively */
+.xnote-rule-folded img:not([data-testid="UserAvatar-Container-unknown"] img):not(.xnote-rule-fold-banner img) {
+  display: none !important;
+}
+
+.xnote-rule-folded video,
+.xnote-rule-folded [role="progressbar"] {
+  display: none !important;
+}
+
+/* Hide content when folded by rule */
+.xnote-rule-hidden {
+  display: none !important;
+}
+
+/* Rule fold banner - shows matched rule info */
+.xnote-rule-fold-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  background-color: rgba(255, 204, 0, 0.08);
+  border: 1px solid rgba(255, 204, 0, 0.2);
+  border-radius: 12px;
+  margin: 8px 0;
+}
+
+.xnote-rule-fold-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xnote-rule-fold-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgb(83, 100, 113);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.xnote-rule-fold-reason {
+  font-size: 12px;
+  color: rgb(113, 118, 123);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.xnote-rule-fold-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.xnote-rule-action-btn {
+  padding: 6px 12px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.xnote-view-once-btn {
+  background: transparent;
+  border: 1px solid rgb(207, 217, 222);
+  color: rgb(83, 100, 113);
+}
+
+.xnote-view-once-btn:hover {
+  background-color: rgba(15, 20, 25, 0.1);
+  border-color: rgb(83, 100, 113);
+}
+
+.xnote-always-allow-btn {
+  background: rgb(29, 155, 240);
+  border: none;
+  color: white;
+}
+
+.xnote-always-allow-btn:hover {
+  background: rgb(26, 140, 216);
+}
+
+/* Dark mode for rule fold */
+@media (prefers-color-scheme: dark) {
+  .xnote-rule-fold-banner {
+    background-color: rgba(255, 204, 0, 0.1);
+    border-color: rgba(255, 204, 0, 0.25);
+  }
+
+  .xnote-rule-fold-title {
+    color: rgb(231, 233, 234);
+  }
+
+  .xnote-rule-fold-reason {
+    color: rgb(139, 152, 165);
+  }
+
+  .xnote-view-once-btn {
+    border-color: rgb(56, 68, 77);
+    color: rgb(139, 152, 165);
+  }
+
+  .xnote-view-once-btn:hover {
+    background-color: rgba(239, 243, 244, 0.1);
+    border-color: rgb(139, 152, 165);
+  }
+}
+
 /* Dark mode fold bar */
 @media (prefers-color-scheme: dark) {
   .xnote-fold-bar {

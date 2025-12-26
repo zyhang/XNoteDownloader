@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,39 +14,48 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      width: 250px;
-      padding: 20px;
+      width: 320px;
+      padding: 16px;
       background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
       color: #0f1419;
     }
 
     .header {
       text-align: center;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
 
     .logo {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 800;
       background: linear-gradient(135deg, #1d9bf0 0%, #1a8cd8 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
-      letter-spacing: -0.5px;
     }
 
     .version {
       font-size: 10px;
       color: #536471;
-      margin-top: 4px;
+      margin-top: 2px;
     }
 
     .setting-card {
       background: #ffffff;
       border-radius: 12px;
-      padding: 16px;
+      padding: 14px;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
       border: 1px solid #e1e8ed;
+      margin-bottom: 12px;
+    }
+
+    .card-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #536471;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
     }
 
     .setting-item {
@@ -68,15 +78,15 @@
     .setting-desc {
       font-size: 11px;
       color: #536471;
-      margin-top: 4px;
-      line-height: 1.4;
+      margin-top: 2px;
+      line-height: 1.3;
     }
 
     /* iOS-style Toggle Switch */
     .toggle {
       position: relative;
-      width: 51px;
-      height: 31px;
+      width: 44px;
+      height: 26px;
       flex-shrink: 0;
     }
 
@@ -95,14 +105,14 @@
       bottom: 0;
       background-color: #e9e9eb;
       transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      border-radius: 31px;
+      border-radius: 26px;
     }
 
     .toggle-slider:before {
       position: absolute;
       content: "";
-      height: 27px;
-      width: 27px;
+      height: 22px;
+      width: 22px;
       left: 2px;
       bottom: 2px;
       background-color: white;
@@ -111,58 +121,221 @@
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
 
-    .toggle input:checked + .toggle-slider {
+    .toggle input:checked+.toggle-slider {
       background-color: #34c759;
     }
 
-    .toggle input:checked + .toggle-slider:before {
-      transform: translateX(20px);
+    .toggle input:checked+.toggle-slider:before {
+      transform: translateX(18px);
     }
 
-    .toggle input:focus + .toggle-slider {
-      box-shadow: 0 0 0 2px rgba(52, 199, 89, 0.3);
+    /* Scope Selector */
+    .scope-selector {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
     }
 
-    .status-badge {
-      display: inline-block;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 4px;
-      margin-top: 8px;
+    .scope-btn {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid #e1e8ed;
+      border-radius: 8px;
+      background: #f8f9fa;
+      color: #536471;
+      cursor: pointer;
       transition: all 0.2s ease;
     }
 
-    .status-badge.active {
-      background: rgba(52, 199, 89, 0.15);
-      color: #34c759;
+    .scope-btn:hover {
+      background: #e8f5fd;
+      border-color: #1d9bf0;
     }
 
-    .status-badge.inactive {
+    .scope-btn.active {
+      background: #1d9bf0;
+      border-color: #1d9bf0;
+      color: white;
+    }
+
+    /* Rules Section */
+    .rules-list {
+      max-height: 200px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+
+    .rule-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      margin-bottom: 6px;
+    }
+
+    .rule-pattern {
+      flex: 1;
+      font-size: 12px;
+      font-family: monospace;
+      color: #0f1419;
+      word-break: break-all;
+    }
+
+    .rule-badges {
+      display: flex;
+      gap: 4px;
+    }
+
+    .rule-badge {
+      font-size: 9px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .rule-badge.regex {
+      background: rgba(255, 149, 0, 0.15);
+      color: #ff9500;
+    }
+
+    .rule-badge.case {
       background: rgba(142, 142, 147, 0.15);
       color: #8e8e93;
     }
 
+    .rule-delete {
+      width: 20px;
+      height: 20px;
+      border: none;
+      background: rgba(255, 59, 48, 0.1);
+      color: #ff3b30;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .rule-delete:hover {
+      background: rgba(255, 59, 48, 0.2);
+    }
+
+    /* Add Rule Form */
+    .add-rule-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .add-rule-input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #e1e8ed;
+      border-radius: 8px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .add-rule-input:focus {
+      border-color: #1d9bf0;
+    }
+
+    .add-rule-options {
+      display: flex;
+      gap: 12px;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #536471;
+      cursor: pointer;
+    }
+
+    .add-rule-btn {
+      padding: 8px 16px;
+      background: #1d9bf0;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .add-rule-btn:hover {
+      background: #1a8cd8;
+    }
+
+    .add-rule-btn:disabled {
+      background: #b8d4e8;
+      cursor: not-allowed;
+    }
+
+    /* Import/Export */
+    .io-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .io-btn {
+      flex: 1;
+      padding: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid #e1e8ed;
+      border-radius: 8px;
+      background: white;
+      color: #536471;
+      cursor: pointer;
+    }
+
+    .io-btn:hover {
+      background: #f8f9fa;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 16px;
+      color: #8e8e93;
+      font-size: 12px;
+    }
+
     .footer {
-      margin-top: 16px;
+      margin-top: 12px;
       text-align: center;
       font-size: 10px;
       color: #8e8e93;
     }
+
+    .error-msg {
+      color: #ff3b30;
+      font-size: 11px;
+      margin-top: 4px;
+    }
   </style>
 </head>
+
 <body>
   <div class="header">
     <div class="logo">XNote</div>
     <div class="version">v1.0.0</div>
   </div>
 
+  <!-- Community Shield -->
   <div class="setting-card">
+    <div class="card-title">🛡️ Community Shield</div>
     <div class="setting-item">
       <div class="setting-content">
-        <div class="setting-label">Community Shield</div>
-        <div class="setting-desc">Hide tweets from known spam & scam accounts</div>
-        <div class="status-badge active" id="statusBadge">● Protected</div>
+        <div class="setting-label">社群黑名单</div>
+        <div class="setting-desc">屏蔽已知垃圾/诈骗账号</div>
       </div>
       <label class="toggle">
         <input type="checkbox" id="enableBlocklist" checked>
@@ -171,10 +344,76 @@
     </div>
   </div>
 
-  <div class="footer">
-    Powered by community blocklist
+  <!-- Download Options -->
+  <div class="setting-card">
+    <div class="card-title">📦 Download Options</div>
+    <div class="setting-item">
+      <div class="setting-content">
+        <div class="setting-label">包含引用推文</div>
+        <div class="setting-desc">下载引用推文中的媒体</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="includeQuote" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
   </div>
 
+  <!-- Content Filter -->
+  <div class="setting-card">
+    <div class="card-title">🔇 Content Filter</div>
+    <div class="setting-item">
+      <div class="setting-content">
+        <div class="setting-label">关键词过滤</div>
+        <div class="setting-desc">根据规则折叠推文</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="enableFilter">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <!-- Scope Selector -->
+    <div class="scope-selector" id="scopeSelector">
+      <button class="scope-btn active" data-scope="all">全部</button>
+      <button class="scope-btn" data-scope="retweets">转发</button>
+      <button class="scope-btn" data-scope="foryou">推荐</button>
+    </div>
+
+    <!-- Rules List -->
+    <div class="rules-list" id="rulesList">
+      <div class="empty-state">暂无规则</div>
+    </div>
+
+    <!-- Add Rule -->
+    <div class="add-rule-form">
+      <input type="text" id="newRuleInput" class="add-rule-input" placeholder="输入关键词或正则表达式">
+      <div class="add-rule-options">
+        <label class="checkbox-label">
+          <input type="checkbox" id="isRegex"> 正则
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="caseSensitive"> 区分大小写
+        </label>
+      </div>
+      <div id="regexError" class="error-msg" style="display: none;"></div>
+      <button class="add-rule-btn" id="addRuleBtn">添加规则</button>
+    </div>
+
+    <!-- Import/Export -->
+    <div class="io-buttons">
+      <button class="io-btn" id="exportBtn">导出规则</button>
+      <button class="io-btn" id="importBtn">导入规则</button>
+    </div>
+    <input type="file" id="importFile" accept=".json" style="display: none;">
+  </div>
+
+  <div class="footer">
+    Powered by XNote Community
+  </div>
+
+  <script src="filterRules.js"></script>
   <script src="popup.js"></script>
 </body>
+
 </html>

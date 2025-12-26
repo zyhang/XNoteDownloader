@@ -32,6 +32,7 @@
             "js": [
                 "jszip.js",
                 "i18n.js",
+                "filterRules.js",
                 "content.js"
             ],
             "css": [
